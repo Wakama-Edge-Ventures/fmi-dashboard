@@ -142,6 +142,7 @@ export interface CreditRequest {
   montant: number;
   duree: number; // months
   objet: string;
+  message?: string;
   statut: CreditStatus;
   montantAccorde?: number;
   tauxApplique?: number;
