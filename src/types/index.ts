@@ -23,7 +23,13 @@ export interface Farmer {
   village: string;
   photo?: string;
   cniUrl?: string;
+  attestationUrl?: string;
   cooperativeId?: string;
+  experienceAnnees?: number;
+  historicCredit?: string;
+  revenusAnnexes?: string; // JSON-serialised string[]
+  gpsLat?: number;
+  gpsLng?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -73,6 +79,15 @@ export interface WakamaScoreResult {
   eligible: boolean;
   montantMin?: number;
   montantMax?: number;
+  produitSuggere?: string;
+  recommendations?: string[];
+  details?: {
+    c1?: {
+      surfaceTotale: number;
+      culturesPrincipales: string[];
+      revenuEstime: number;
+    };
+  };
   updatedAt: string;
 }
 

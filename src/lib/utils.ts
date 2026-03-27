@@ -71,11 +71,12 @@ export function formatScore(score: number): string {
  *      2h ago     → "il y a 2h"
  *      3 days ago → "il y a 3j"
  */
-export function relativeTime(date: string | Date): string {
+export function relativeTime(date: string | Date | undefined | null): string {
+  if (!date) return "Date inconnue";
   const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "Date invalide";
   const diffMs = Date.now() - d.getTime();
   const diffSec = Math.floor(diffMs / 1000);
-
   if (diffSec < 60) return "à l'instant";
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `il y a ${diffMin}min`;
@@ -85,7 +86,7 @@ export function relativeTime(date: string | Date): string {
   if (diffD < 30) return `il y a ${diffD}j`;
   const diffM = Math.floor(diffD / 30);
   if (diffM < 12) return `il y a ${diffM} mois`;
-  return `il y a ${Math.floor(diffM / 12)} an${Math.floor(diffM / 12) > 1 ? "s" : ""}`;
+  return `il y a ${Math.floor(diffM / 12)} an(s)`;
 }
 
 /**

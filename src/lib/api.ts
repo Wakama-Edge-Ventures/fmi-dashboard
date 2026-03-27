@@ -174,8 +174,8 @@ export const ndvi = {
 // ─── Credit Requests ─────────────────────────────────────────────────────────
 
 export const creditRequests = {
-  list(farmerId?: string): Promise<CreditRequest[]> {
-    const qs = farmerId ? `?farmerId=${farmerId}` : "";
+  list(params?: { farmerId?: string }): Promise<CreditRequest[]> {
+    const qs = params?.farmerId ? `?farmerId=${params.farmerId}` : "";
     return apiFetch<CreditRequest[]>(`/v1/credit-requests${qs}`);
   },
 
