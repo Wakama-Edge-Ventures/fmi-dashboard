@@ -30,6 +30,9 @@ export interface Farmer {
   revenusAnnexes?: string; // JSON-serialised string[]
   gpsLat?: number;
   gpsLng?: number;
+  /** API may return camelCase variants */
+  firstName?: string;
+  lastName?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -75,6 +78,11 @@ export interface WakamaScoreResult {
   c2: number; // Caractère   (0-250)
   c3: number; // Collatéral  (0-250)
   c4: number; // Conditions  (0-250)
+  /** API may return camelCase score components */
+  scoreC1?: number;
+  scoreC2?: number;
+  scoreC3?: number;
+  scoreC4?: number;
   label: ScoreLevel;
   eligible: boolean;
   montantMin?: number;

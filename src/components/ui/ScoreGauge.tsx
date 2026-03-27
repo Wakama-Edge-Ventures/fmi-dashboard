@@ -1,8 +1,20 @@
 import { scoreColor, scoreLabel } from "@/src/lib/utils";
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const CX          = 100;
+const CY          = 100;
+const R           = 80;
+const STROKE_W    = 14;
+const FULL_CIRC   = 2 * Math.PI * R;   // ≈ 502.655
+const HALF_CIRC   = Math.PI * R;        // ≈ 251.327  (the gauge arc length)
+const TRANSFORM   = `rotate(-180 ${CX} ${CY})`;
+
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface ScoreGaugeProps {
   score: number;
-  /** SVG width in px (height auto = width / 2 + padding) */
+  /** kept for API compat — SVG now uses fixed 200×120 geometry */
   size?: number;
   showDetails?: boolean;
   /** C1 Capacité   (0-250) */
@@ -15,43 +27,22 @@ interface ScoreGaugeProps {
   c4?: number;
 }
 
-function describeArc(
-  cx: number,
-  cy: number,
-  r: number,
-  score: number
-): string {
-  // Clamp to avoid degenerate arc at score = 0
-  const clamped = Math.max(score, 1);
-  const f = Math.min(clamped, 1000) / 1000;
-  // Angle in "mathematical" radians: starts at left (π) and goes to right (0)
-  const angle = (1 - f) * Math.PI;
-  const endX = cx + r * Math.cos(angle);
-  const endY = cy - r * Math.sin(angle);
-  const largeArc = f > 0.5 ? 1 : 0;
-  return `M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${endX} ${endY}`;
-}
-
-function backgroundArc(cx: number, cy: number, r: number): string {
-  // Full upper semicircle from left to right
-  return `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`;
-}
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ScoreGauge({
   score,
-  size = 200,
   showDetails = false,
   c1,
   c2,
   c3,
   c4,
 }: ScoreGaugeProps) {
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = size / 2 - 16; // padding 16px
-  const strokeW = Math.max(10, size / 20);
   const color = scoreColor(score);
   const label = scoreLabel(score);
+
+  // Clamp to [1, 1000] so strokeLinecap="round" never renders a phantom dot at 0
+  const safeScore  = Math.max(1, Math.min(score, 1000));
+  const progressLen = (safeScore / 1000) * HALF_CIRC;
 
   const cs = [
     { key: "C1", label: "Capacité",   value: c1 },
@@ -62,83 +53,76 @@ export default function ScoreGauge({
 
   return (
     <div className="flex flex-col items-center gap-4">
-      {/* SVG Gauge */}
-      <div style={{ width: size, height: size / 2 + strokeW }}>
-        <svg
-          width={size}
-          height={size / 2 + strokeW}
-          viewBox={`0 0 ${size} ${size / 2 + strokeW}`}
-          overflow="visible"
-        >
-          {/* Background arc */}
-          <path
-            d={backgroundArc(cx, cy, r)}
-            fill="none"
-            stroke="#1f2937"
-            strokeWidth={strokeW}
-            strokeLinecap="round"
-          />
 
-          {/* Progress arc */}
-          <path
-            d={describeArc(cx, cy, r, score)}
-            fill="none"
-            stroke={color}
-            strokeWidth={strokeW}
-            strokeLinecap="round"
-            style={{ transition: "stroke-dasharray 0.6s ease" }}
-          />
+      {/* ── SVG gauge — fixed 200×120 viewport ── */}
+      <svg
+        width="200"
+        height="120"
+        viewBox="0 0 200 120"
+        aria-label={`Score ${score} sur 1000`}
+      >
+        {/*
+          Both arcs are <circle> elements sharing the SAME cx/cy/r/strokeWidth/
+          strokeLinecap/transform — alignment is structural, not computed.
 
-          {/* Score text */}
-          <text
-            x={cx}
-            y={cy - 4}
-            textAnchor="middle"
-            dominantBaseline="auto"
+          rotate(-180 CX CY) shifts the stroke start-point from 3 o'clock (right)
+          to 9 o'clock (left), so the visible dash sweeps left → top → right.
+
+          Background: strokeDasharray = "halfCirc halfCirc"
+            → shows top semicircle, hides bottom semicircle.
+          Progress:   strokeDasharray = "progressLen fullCirc"
+            → shows only the filled portion (gap is always larger than remainder).
+        */}
+
+        {/* Background arc */}
+        <circle
+          cx={CX}
+          cy={CY}
+          r={R}
+          fill="none"
+          stroke="#1f2937"
+          strokeWidth={STROKE_W}
+          strokeLinecap="round"
+          strokeDasharray={`${HALF_CIRC} ${HALF_CIRC}`}
+          transform={TRANSFORM}
+        />
+
+        {/* Progress arc */}
+        <circle
+          cx={CX}
+          cy={CY}
+          r={R}
+          fill="none"
+          stroke={color}
+          strokeWidth={STROKE_W}
+          strokeLinecap="round"
+          strokeDasharray={`${progressLen} ${FULL_CIRC}`}
+          transform={TRANSFORM}
+          style={{ transition: "stroke-dasharray 0.5s ease" }}
+        />
+
+        {/* Score + /1000 — single <text> with two <tspan> for vertical alignment */}
+        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle">
+          <tspan
+            x="50%"
+            dy="-8"
             fill={color}
             fontFamily="var(--font-jetbrains-mono), monospace"
             fontWeight="700"
-            fontSize={size / 6}
+            fontSize="32"
           >
             {score}
-          </text>
-
-          {/* /1000 sub-text */}
-          <text
-            x={cx}
-            y={cy + strokeW / 2 - 2}
-            textAnchor="middle"
-            dominantBaseline="auto"
+          </tspan>
+          <tspan
+            x="50%"
+            dy="28"
             fill="#6b7280"
-            fontFamily="var(--font-jetbrains-mono), monospace"
-            fontSize={size / 14}
+            fontSize="13"
           >
-            / 1000
-          </text>
-
-          {/* Range labels */}
-          <text
-            x={cx - r - 4}
-            y={cy + strokeW / 2 + 2}
-            textAnchor="end"
-            dominantBaseline="auto"
-            fill="#6b7280"
-            fontSize={size / 18}
-          >
-            0
-          </text>
-          <text
-            x={cx + r + 4}
-            y={cy + strokeW / 2 + 2}
-            textAnchor="start"
-            dominantBaseline="auto"
-            fill="#6b7280"
-            fontSize={size / 18}
-          >
-            1000
-          </text>
-        </svg>
-      </div>
+            /1000
+          </tspan>
+        </text>
+      </svg>
 
       {/* Level badge */}
       <span
