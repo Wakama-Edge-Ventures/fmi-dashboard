@@ -19,11 +19,8 @@ interface DataTableProps<T extends Record<string, unknown>> {
   data: T[];
   pagination?: PaginationProps | boolean;
   onExport?: () => void;
-  /** Filename for the CSV export (default: "export.csv") */
   exportFilename?: string;
-  /** Optional row click handler */
   onRowClick?: (row: T) => void;
-  /** Empty state message */
   emptyMessage?: string;
 }
 
@@ -45,11 +42,10 @@ export default function DataTable<T extends Record<string, unknown>>({
       ? Infinity
       : (pagination.pageSize ?? 10);
 
-  const [page, setPage] = useState(1);
+  const [page,    setPage]    = useState(1);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
-  // Sorting
   const sorted = useMemo(() => {
     if (!sortKey) return data;
     return [...data].sort((a, b) => {
@@ -64,10 +60,9 @@ export default function DataTable<T extends Record<string, unknown>>({
     });
   }, [data, sortKey, sortDir]);
 
-  // Pagination
   const totalPages =
     pageSize === Infinity ? 1 : Math.max(1, Math.ceil(sorted.length / pageSize));
-  const safePage = Math.min(page, totalPages);
+  const safePage  = Math.min(page, totalPages);
   const paginated =
     pageSize === Infinity
       ? sorted
@@ -84,32 +79,67 @@ export default function DataTable<T extends Record<string, unknown>>({
   }
 
   function handleExport() {
-    if (onExport) {
-      onExport();
-      return;
-    }
+    if (onExport) { onExport(); return; }
     const rows = data.map((row) => {
       const out: Record<string, unknown> = {};
-      columns.forEach((col) => {
-        out[col.label] = row[col.key] ?? "";
-      });
+      columns.forEach((col) => { out[col.label] = row[col.key] ?? ""; });
       return out as Record<string, unknown>;
     });
     exportCSV(rows, exportFilename);
   }
 
   return (
-    <div className="flex flex-col gap-0 rounded-xl border border-gray-800 overflow-hidden bg-bg-secondary">
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        background: "#0d1423",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 8,
+        overflow: "hidden",
+      }}
+    >
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-        <p className="text-xs text-text-muted">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "8px 12px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        <p style={{ fontSize: 11, color: "#5a6a85" }}>
           {sorted.length} résultat{sorted.length !== 1 ? "s" : ""}
         </p>
         <button
           onClick={handleExport}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-text-secondary bg-bg-tertiary hover:bg-bg-hover hover:text-text-primary border border-gray-700 transition-colors"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            height: 28,
+            paddingLeft: 10,
+            paddingRight: 10,
+            borderRadius: 6,
+            fontSize: 11,
+            fontWeight: 500,
+            color: "#5a6a85",
+            background: "transparent",
+            border: "1px solid rgba(255,255,255,0.06)",
+            cursor: "pointer",
+            transition: "border-color 150ms, color 150ms",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = "#e8edf5";
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.15)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = "#5a6a85";
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.06)";
+          }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 13, color: "inherit", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>
             download
           </span>
           Exporter CSV
@@ -117,32 +147,34 @@ export default function DataTable<T extends Record<string, unknown>>({
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr className="bg-gray-900">
+            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className={[
-                    "px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted select-none whitespace-nowrap",
-                    col.sortable
-                      ? "cursor-pointer hover:text-text-primary transition-colors"
-                      : "",
-                  ].join(" ")}
+                  className="label-xs"
+                  style={{
+                    height: 32,
+                    padding: "0 12px",
+                    textAlign: "left",
+                    whiteSpace: "nowrap",
+                    userSelect: "none",
+                    cursor: col.sortable ? "pointer" : "default",
+                  }}
                   onClick={col.sortable ? () => toggleSort(col.key) : undefined}
                 >
-                  <span className="inline-flex items-center gap-1">
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                     {col.label}
                     {col.sortable && (
                       <span
                         className="material-symbols-outlined"
                         style={{
-                          fontSize: 14,
-                          opacity:
-                            sortKey === col.key ? 1 : 0.3,
-                          fontVariationSettings:
-                            '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20',
+                          fontSize: 12,
+                          opacity: sortKey === col.key ? 1 : 0.3,
+                          fontVariationSettings: '"FILL" 1, "wght" 300, "GRAD" 0, "opsz" 20',
+                          color: sortKey === col.key ? "#10b981" : "inherit",
                         }}
                       >
                         {sortKey === col.key && sortDir === "desc"
@@ -160,27 +192,53 @@ export default function DataTable<T extends Record<string, unknown>>({
               <tr>
                 <td
                   colSpan={columns.length}
-                  className="px-4 py-12 text-center text-sm text-text-muted"
+                  style={{
+                    padding: "48px 12px",
+                    textAlign: "center",
+                    fontSize: 12,
+                    color: "#5a6a85",
+                  }}
                 >
-                  {emptyMessage}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    <span
+                      className="material-symbols-outlined"
+                      style={{ fontSize: 24, color: "#3a4a60", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}
+                    >
+                      table_rows
+                    </span>
+                    {emptyMessage}
+                  </div>
                 </td>
               </tr>
             ) : (
               paginated.map((row, i) => (
                 <tr
                   key={i}
-                  className={[
-                    "border-b border-gray-800 last:border-0 transition-colors",
-                    onRowClick
-                      ? "cursor-pointer hover:bg-gray-800/50"
-                      : "hover:bg-gray-800/30",
-                  ].join(" ")}
+                  style={{
+                    height: 40,
+                    borderBottom: "1px solid rgba(255,255,255,0.03)",
+                    cursor: onRowClick ? "pointer" : "default",
+                    transition: "background 120ms",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLTableRowElement).style.background =
+                      "rgba(255,255,255,0.02)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLTableRowElement).style.background =
+                      "transparent";
+                  }}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                 >
                   {columns.map((col) => (
                     <td
                       key={col.key}
-                      className="px-4 py-3 text-sm text-text-primary whitespace-nowrap"
+                      style={{
+                        padding: "0 12px",
+                        fontSize: 12,
+                        color: "#e8edf5",
+                        whiteSpace: "nowrap",
+                      }}
                     >
                       {col.render
                         ? col.render(row[col.key], row)
@@ -196,70 +254,108 @@ export default function DataTable<T extends Record<string, unknown>>({
 
       {/* Pagination */}
       {pagination !== false && totalPages > 1 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
-          <p className="text-xs text-text-muted">
-            Page {safePage} sur {totalPages} —{" "}
-            {(safePage - 1) * pageSize + 1}–
-            {Math.min(safePage * pageSize, sorted.length)} sur {sorted.length}
-          </p>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={safePage === 1}
-              className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                chevron_left
-              </span>
-            </button>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 6,
+            padding: "8px 12px",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+          }}
+        >
+          <span style={{ fontSize: 11, color: "#5a6a85", marginRight: 8 }}>
+            Page {safePage} / {totalPages}
+          </span>
 
-            {/* Page numbers — show up to 5 */}
-            {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .filter(
-                (p) =>
-                  p === 1 ||
-                  p === totalPages ||
-                  Math.abs(p - safePage) <= 1
+          <PaginationBtn
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={safePage === 1}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 13, color: "inherit", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>
+              chevron_left
+            </span>
+          </PaginationBtn>
+
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+            .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+              if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+              acc.push(p);
+              return acc;
+            }, [])
+            .map((p, i) =>
+              p === "…" ? (
+                <span key={`e-${i}`} style={{ fontSize: 11, color: "#3a4a60", padding: "0 2px" }}>…</span>
+              ) : (
+                <PaginationBtn
+                  key={p}
+                  onClick={() => setPage(p as number)}
+                  active={p === safePage}
+                >
+                  {p}
+                </PaginationBtn>
               )
-              .reduce<(number | "…")[]>((acc, p, idx, arr) => {
-                if (idx > 0 && p - (arr[idx - 1] as number) > 1)
-                  acc.push("…");
-                acc.push(p);
-                return acc;
-              }, [])
-              .map((p, i) =>
-                p === "…" ? (
-                  <span key={`ellipsis-${i}`} className="px-1 text-xs text-text-muted">
-                    …
-                  </span>
-                ) : (
-                  <button
-                    key={p}
-                    onClick={() => setPage(p as number)}
-                    className={[
-                      "flex items-center justify-center w-7 h-7 rounded-md text-xs font-medium transition-colors",
-                      p === safePage
-                        ? "bg-accent text-white"
-                        : "text-text-secondary hover:bg-bg-hover",
-                    ].join(" ")}
-                  >
-                    {p}
-                  </button>
-                )
-              )}
+            )}
 
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage === totalPages}
-              className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                chevron_right
-              </span>
-            </button>
-          </div>
+          <PaginationBtn
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={safePage === totalPages}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 13, color: "inherit", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>
+              chevron_right
+            </span>
+          </PaginationBtn>
         </div>
       )}
     </div>
+  );
+}
+
+function PaginationBtn({
+  children,
+  onClick,
+  disabled = false,
+  active = false,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: 28,
+        minWidth: 28,
+        padding: "0 6px",
+        borderRadius: 5,
+        fontSize: 11,
+        fontWeight: active ? 500 : 400,
+        color: active ? "#10b981" : "#5a6a85",
+        background: active ? "rgba(16,185,129,0.08)" : "#0d1423",
+        border: active
+          ? "1px solid rgba(16,185,129,0.3)"
+          : "1px solid rgba(255,255,255,0.06)",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.35 : 1,
+        transition: "background 120ms, border-color 120ms",
+      }}
+      onMouseEnter={(e) => {
+        if (disabled || active) return;
+        (e.currentTarget as HTMLButtonElement).style.background = "#111a2e";
+      }}
+      onMouseLeave={(e) => {
+        if (disabled || active) return;
+        (e.currentTarget as HTMLButtonElement).style.background = "#0d1423";
+      }}
+    >
+      {children}
+    </button>
   );
 }

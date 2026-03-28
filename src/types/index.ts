@@ -4,6 +4,11 @@ export interface AuthLoginResponse {
   token: string;
   role: string;
   email: string;
+  /** Institution fields (API v2) */
+  institutionId?:   string;
+  institutionName?: string;
+  institutionType?: string;
+  modules?:         string[];
 }
 
 export interface AuthUser {
@@ -48,10 +53,18 @@ export interface FarmersListResponse {
 
 export interface Cooperative {
   id: string;
+  name?: string;
   nom: string;
   region: string;
   totalFarmers: number;
   avgScore?: number;
+  filiere?: string;
+  certification?: string;
+  foundedAt?: string;
+  rccm?: string;
+  contratAcheteurs?: boolean;
+  lat?: number;
+  lng?: number;
   createdAt: string;
 }
 
@@ -64,6 +77,13 @@ export interface Parcelle {
   culture: string;
   stade: string;
   polygon?: Array<{ lat: number; lng: number }>;
+  /** GeoJSON string returned by API */
+  polygone?: string;
+  /** API may return direct coordinates */
+  lat?: number;
+  lng?: number;
+  name?: string;
+  ndvi?: number;
   createdAt: string;
 }
 
@@ -103,21 +123,29 @@ export interface CoopScoreResult {
   avgScore: number;
   totalFarmers: number;
   eligible: number;
+  eligibiliteRate?: number;
   farmers: Array<{ farmerId: string; score: number }>;
 }
 
 // ─── Alert ───────────────────────────────────────────────────────────────────
 
-export type AlertSeverity = "CRITICAL" | "WARNING" | "INFO";
+export type AlertSeverity =
+  | "CRITICAL" | "WARNING" | "INFO"   // legacy values
+  | "HIGH"     | "MEDIUM"  | "LOW";   // API v2 values
+
+export type AlertType = "METEO" | "SCORE" | "CREDIT" | "IOT" | "SYSTEM" | string;
 
 export interface Alert {
   id: string;
   farmerId?: string;
   coopId?: string;
   severity: AlertSeverity;
+  type?: AlertType;
+  title?: string;
   message: string;
   read: boolean;
   createdAt: string;
+  updatedAt?: string;
 }
 
 // ─── NDVI ────────────────────────────────────────────────────────────────────
@@ -139,6 +167,7 @@ export type CreditStatus =
 export interface CreditRequest {
   id: string;
   farmerId: string;
+  institutionId?: string;
   montant: number;
   duree: number; // months
   objet: string;
@@ -182,6 +211,13 @@ export interface IotNode {
   lat: number;
   lng: number;
   lastSeen: string;
+  nodeCode?: string;
+  status?: "LIVE" | "OFFLINE" | string;
+  batterie?: number;
+  connectivity?: string;
+  lastSyncAt?: string;
+  totalReadings?: number;
+  readings?: IotReading[];
 }
 
 export interface IotReading {
@@ -190,4 +226,5 @@ export interface IotReading {
   temperature: number;
   humidity: number;
   soilMoisture: number;
+  rssi?: number;
 }

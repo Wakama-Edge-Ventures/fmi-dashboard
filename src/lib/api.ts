@@ -40,7 +40,10 @@ async function apiFetch<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const fullUrl = `${BASE_URL}${path}`;
+  console.log(`[api] → ${options.method ?? "GET"} ${fullUrl}`);
+
+  const res = await fetch(fullUrl, {
     ...options,
     headers,
   });
@@ -194,6 +197,26 @@ export const creditRequests = {
     return apiFetch<CreditRequest>(`/v1/credit-requests/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ statut, ...extra }),
+    });
+  },
+
+  approveCreditDecision(
+    id: string,
+    data: { montant: number; taux: number; duree: number; motif?: string }
+  ): Promise<CreditRequest> {
+    return apiFetch<CreditRequest>(`/v1/credit-requests/${id}/approve`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  rejectCreditDecision(
+    id: string,
+    data: { motif: string }
+  ): Promise<CreditRequest> {
+    return apiFetch<CreditRequest>(`/v1/credit-requests/${id}/reject`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
     });
   },
 };

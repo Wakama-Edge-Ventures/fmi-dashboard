@@ -5,6 +5,11 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import KPICard from "@/src/components/ui/KPICard";
+import { getInstitutionId, getInstitutionName } from "@/src/lib/auth";
+import {
+  getActiveConfig,
+  type InstitutionScoringConfig,
+} from "@/src/lib/scoringConfig";
 import {
   creditRequests as creditRequestsApi,
   farmers as farmersApi,
@@ -111,15 +116,30 @@ interface ApprovalModalProps {
   credit: CreditRequest;
   farmer?: Farmer;
   scoreData?: WakamaScoreResult;
+  scoringConfig?: InstitutionScoringConfig | null;
   onClose: () => void;
   onConfirm: (montantAccorde: number, tauxApplique: number, produit: string) => void;
+  isSubmitting?: boolean;
+  submitError?: string | null;
 }
 
-function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm }: ApprovalModalProps) {
+function ApprovalModal({ credit, farmer, scoreData, scoringConfig, onClose, onConfirm, isSubmitting = false, submitError }: ApprovalModalProps) {
+  // Use institution's config products if available, fallback to hardcoded
+  const effectiveProducts = scoringConfig?.products.filter((p) => p.active).map((p) => ({
+    label: p.name,
+    taux: p.tauxMensuel,
+    maxMontant: p.maxMontant,
+    minMontant: p.minMontant,
+    maxDuree: p.maxDureeMois,
+  })) ?? PRODUCTS_MFI.map((p) => ({ ...p, maxMontant: 10_000_000, minMontant: 50_000, maxDuree: 36 }));
+
+  const defaultProduit = effectiveProducts[0]?.label ?? "Baobab Agri Production";
+  const defaultTaux = scoringConfig?.creditConditions.tauxBase ?? effectiveProducts[0]?.taux ?? 1.60;
+
   const [montant,    setMontant]    = useState(credit.montant);
-  const [taux,       setTaux]       = useState(1.60);
+  const [taux,       setTaux]       = useState(defaultTaux);
   const [duree,      setDuree]      = useState(credit.duree);
-  const [produit,    setProduit]    = useState("Baobab Agri Production");
+  const [produit,    setProduit]    = useState(defaultProduit);
   const [conditions, setConditions] = useState("");
 
   // Live cost preview
@@ -129,7 +149,7 @@ function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm }: Approv
 
   function handleProduitChange(p: string) {
     setProduit(p);
-    const found = PRODUCTS_MFI.find((pr) => pr.label === p);
+    const found = effectiveProducts.find((pr) => pr.label === p);
     if (found) setTaux(found.taux);
   }
 
@@ -203,7 +223,7 @@ function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm }: Approv
                 onChange={(e) => handleProduitChange(e.target.value)}
                 className="w-full rounded-lg bg-bg-tertiary border border-gray-700 px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-accent"
               >
-                {PRODUCTS_MFI.map((p) => (
+                {effectiveProducts.map((p) => (
                   <option key={p.label}>{p.label} — {p.taux}%/mois</option>
                 ))}
               </select>
@@ -249,18 +269,34 @@ function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm }: Approv
           </div>
         </div>
 
+        {submitError && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444" }}>
+            <span className="material-symbols-outlined shrink-0" style={{ fontSize: 13, fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20' }}>error</span>
+            {submitError}
+          </div>
+        )}
+
         <div className="flex gap-3 mt-5">
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-700 bg-bg-tertiary px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg border border-gray-700 bg-bg-tertiary px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
           >
             Annuler
           </button>
           <button
             onClick={() => onConfirm(montant, taux, produit)}
-            className="flex-1 rounded-lg bg-accent hover:bg-accent-hover px-4 py-2 text-sm font-semibold text-white transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg bg-accent hover:bg-accent-hover px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            Confirmer approbation
+            {isSubmitting ? (
+              <>
+                <span className="material-symbols-outlined animate-spin" style={{ fontSize: 14 }}>progress_activity</span>
+                Envoi…
+              </>
+            ) : (
+              "Confirmer approbation"
+            )}
           </button>
         </div>
       </div>
@@ -276,9 +312,11 @@ interface RejectionModalProps {
   scoreData?: WakamaScoreResult;
   onClose: () => void;
   onConfirm: (motif: string, note: string) => void;
+  isSubmitting?: boolean;
+  submitError?: string | null;
 }
 
-function RejectionModal({ credit, farmer, scoreData, onClose, onConfirm }: RejectionModalProps) {
+function RejectionModal({ credit, farmer, scoreData, onClose, onConfirm, isSubmitting = false, submitError }: RejectionModalProps) {
   const [motif, setMotif] = useState(MOTIFS[0]);
   const [note,  setNote]  = useState("");
 
@@ -338,18 +376,34 @@ function RejectionModal({ credit, farmer, scoreData, onClose, onConfirm }: Rejec
           </label>
         </div>
 
+        {submitError && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", color: "#ef4444" }}>
+            <span className="material-symbols-outlined shrink-0" style={{ fontSize: 13, fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20' }}>error</span>
+            {submitError}
+          </div>
+        )}
+
         <div className="flex gap-3 mt-5">
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-700 bg-bg-tertiary px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg border border-gray-700 bg-bg-tertiary px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
           >
             Annuler
           </button>
           <button
             onClick={() => onConfirm(motif, note)}
-            className="flex-1 rounded-lg bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-semibold text-white transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            Confirmer le rejet
+            {isSubmitting ? (
+              <>
+                <span className="material-symbols-outlined animate-spin" style={{ fontSize: 14 }}>progress_activity</span>
+                Envoi…
+              </>
+            ) : (
+              "Confirmer le rejet"
+            )}
           </button>
         </div>
       </div>
@@ -365,6 +419,17 @@ export default function CreditsPage() {
 
   const [loading,        setLoading]        = useState(true);
   const [credits,        setCredits]        = useState<CreditRequest[]>([]);
+  const [institutionId,  setInstitutionId]  = useState<string | null>(null);
+  const [institutionName, setInstitutionName] = useState("");
+
+  const [scoringConfig, setScoringConfig] = useState<InstitutionScoringConfig | null>(null);
+
+  useEffect(() => {
+    const id = getInstitutionId();
+    setInstitutionId(id);
+    setInstitutionName(getInstitutionName());
+    setScoringConfig(getActiveConfig(id));
+  }, []);
   const [farmerMap,      setFarmerMap]      = useState<Record<string, Farmer>>({});
   const [scoreMap,       setScoreMap]       = useState<Record<string, WakamaScoreResult>>({});
   const [activeTab,      setActiveTab]      = useState<Tab>("PENDING");
@@ -377,6 +442,8 @@ export default function CreditsPage() {
   const [showRejection,  setShowRejection]  = useState(false);
   const [selectedCredit, setSelectedCredit] = useState<CreditRequest | null>(null);
   const [toast,          setToast]          = useState<string | null>(null);
+  const [isSubmitting,   setIsSubmitting]   = useState(false);
+  const [modalError,     setModalError]     = useState<string | null>(null);
 
   function showToastMsg(msg: string) {
     setToast(msg);
@@ -435,27 +502,35 @@ export default function CreditsPage() {
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
+  // Filter by institution — only when the API provides institutionId on credits
+  const visibleCredits = useMemo(() => {
+    if (!institutionId) return credits;
+    const hasSomeId = credits.some((c) => c.institutionId);
+    if (!hasSomeId) return credits; // API doesn't send institutionId yet
+    return credits.filter((c) => !c.institutionId || c.institutionId === institutionId);
+  }, [credits, institutionId]);
+
   const kpis = useMemo(() => ({
-    pending:       credits.filter((c) => c.statut === "PENDING"),
-    approved:      credits.filter((c) => c.statut === "APPROVED"),
-    rejected:      credits.filter((c) => c.statut === "REJECTED"),
-    pendingAmount: credits
+    pending:       visibleCredits.filter((c) => c.statut === "PENDING"),
+    approved:      visibleCredits.filter((c) => c.statut === "APPROVED"),
+    rejected:      visibleCredits.filter((c) => c.statut === "REJECTED"),
+    pendingAmount: visibleCredits
       .filter((c) => c.statut === "PENDING")
       .reduce((s, c) => s + c.montant, 0),
-  }), [credits]);
+  }), [visibleCredits]);
 
   const tabCounts = useMemo(
     () => ({
       PENDING:  kpis.pending.length,
       APPROVED: kpis.approved.length,
       REJECTED: kpis.rejected.length,
-      ALL:      credits.length,
+      ALL:      visibleCredits.length,
     }),
-    [credits, kpis]
+    [visibleCredits, kpis]
   );
 
   const filtered = useMemo(() => {
-    let result = [...credits];
+    let result = [...visibleCredits];
 
     // Tab
     if (activeTab !== "ALL") {
@@ -501,26 +576,33 @@ export default function CreditsPage() {
     });
 
     return result;
-  }, [credits, activeTab, search, scoreMin, montantMin, montantMax, sortBy, farmerMap, scoreMap]);
+  }, [visibleCredits, activeTab, search, scoreMin, montantMin, montantMax, sortBy, farmerMap, scoreMap]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
   function openApproval(credit: CreditRequest) {
     setSelectedCredit(credit);
+    setModalError(null);
     setShowApproval(true);
   }
   function openRejection(credit: CreditRequest) {
     setSelectedCredit(credit);
+    setModalError(null);
     setShowRejection(true);
   }
 
   async function handleApprove(montantAccorde: number, tauxApplique: number, _produit: string) {
     if (!selectedCredit) return;
+    setIsSubmitting(true);
+    setModalError(null);
+    console.log("[credits] approve →", selectedCredit.id, { montantAccorde, tauxApplique });
     try {
-      await creditRequestsApi.updateStatus(selectedCredit.id, "APPROVED", {
-        montantAccorde,
-        tauxApplique,
+      const result = await creditRequestsApi.approveCreditDecision(selectedCredit.id, {
+        montant: montantAccorde,
+        taux:    tauxApplique,
+        duree:   selectedCredit.duree,
       });
+      console.log("[credits] approve ← OK", result);
       setCredits((prev) =>
         prev.map((c) =>
           c.id === selectedCredit.id
@@ -528,18 +610,26 @@ export default function CreditsPage() {
             : c
         )
       );
-      showToastMsg("Crédit approuvé ✅");
-    } catch {
-      showToastMsg("Erreur lors de l'approbation");
+      setShowApproval(false);
+      setSelectedCredit(null);
+      showToastMsg("Crédit approuvé ✓");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors de l'approbation";
+      console.error("[credits] approve ← ERROR", msg);
+      setModalError(msg);
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowApproval(false);
-    setSelectedCredit(null);
   }
 
-  async function handleReject(_motif: string, _note: string) {
+  async function handleReject(motif: string, _note: string) {
     if (!selectedCredit) return;
+    setIsSubmitting(true);
+    setModalError(null);
+    console.log("[credits] reject →", selectedCredit.id, { motif });
     try {
-      await creditRequestsApi.updateStatus(selectedCredit.id, "REJECTED");
+      const result = await creditRequestsApi.rejectCreditDecision(selectedCredit.id, { motif });
+      console.log("[credits] reject ← OK", result);
       setCredits((prev) =>
         prev.map((c) =>
           c.id === selectedCredit.id
@@ -547,12 +637,16 @@ export default function CreditsPage() {
             : c
         )
       );
+      setShowRejection(false);
+      setSelectedCredit(null);
       showToastMsg("Demande rejetée");
-    } catch {
-      showToastMsg("Erreur lors du rejet");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors du rejet";
+      console.error("[credits] reject ← ERROR", msg);
+      setModalError(msg);
+    } finally {
+      setIsSubmitting(false);
     }
-    setShowRejection(false);
-    setSelectedCredit(null);
   }
 
   function handleExport() {
@@ -618,8 +712,11 @@ export default function CreditsPage() {
           credit={selectedCredit}
           farmer={farmerMap[selectedCredit.farmerId]}
           scoreData={scoreMap[selectedCredit.farmerId]}
+          scoringConfig={scoringConfig}
           onClose={() => { setShowApproval(false); setSelectedCredit(null); }}
           onConfirm={handleApprove}
+          isSubmitting={isSubmitting}
+          submitError={modalError}
         />
       )}
       {showRejection && selectedCredit && (
@@ -629,6 +726,8 @@ export default function CreditsPage() {
           scoreData={scoreMap[selectedCredit.farmerId]}
           onClose={() => { setShowRejection(false); setSelectedCredit(null); }}
           onConfirm={handleReject}
+          isSubmitting={isSubmitting}
+          submitError={modalError}
         />
       )}
 
@@ -637,7 +736,8 @@ export default function CreditsPage() {
         <div>
           <h1 className="text-lg font-bold text-text-primary">Demandes de crédit</h1>
           <p className="text-sm text-text-secondary mt-0.5">
-            Pipeline de traitement — {credits.length} demande{credits.length !== 1 ? "s" : ""}
+            {institutionName ? `${institutionName} · ` : ""}
+            Pipeline de traitement — {visibleCredits.length} demande{visibleCredits.length !== 1 ? "s" : ""}
           </p>
         </div>
         <button
@@ -976,7 +1076,7 @@ export default function CreditsPage() {
           <div className="px-4 py-3 border-t border-gray-800 flex items-center justify-between">
             <span className="text-xs text-text-muted">
               {filtered.length} résultat{filtered.length !== 1 ? "s" : ""}
-              {filtered.length !== credits.length && ` sur ${credits.length}`}
+              {filtered.length !== visibleCredits.length && ` sur ${visibleCredits.length}`}
             </span>
             <button
               onClick={handleExport}

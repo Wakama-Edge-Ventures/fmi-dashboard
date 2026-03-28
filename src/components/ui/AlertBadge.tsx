@@ -14,12 +14,27 @@ const STYLES: Record<
     text: "text-red-400",
     icon: "error",
   },
+  HIGH: {
+    container: "bg-red-500/10 border-red-800",
+    text: "text-red-400",
+    icon: "error",
+  },
   WARNING: {
     container: "bg-amber-500/10 border-amber-800",
     text: "text-amber-400",
     icon: "warning",
   },
+  MEDIUM: {
+    container: "bg-amber-500/10 border-amber-800",
+    text: "text-amber-400",
+    icon: "warning",
+  },
   INFO: {
+    container: "bg-blue-500/10 border-blue-800",
+    text: "text-blue-400",
+    icon: "info",
+  },
+  LOW: {
     container: "bg-blue-500/10 border-blue-800",
     text: "text-blue-400",
     icon: "info",

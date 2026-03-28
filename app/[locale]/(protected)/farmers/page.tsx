@@ -10,6 +10,13 @@ import {
   farmers as farmersApi,
   scores as scoresApi,
 } from "@/src/lib/api";
+import { getInstitutionId } from "@/src/lib/auth";
+import {
+  applyCustomWeights,
+  getActiveConfig,
+  hasCustomWeights,
+  type InstitutionScoringConfig,
+} from "@/src/lib/scoringConfig";
 import { exportCSV, initials, scoreColor, scoreLabel } from "@/src/lib/utils";
 import type { Cooperative, Farmer, WakamaScoreResult } from "@/src/types";
 
@@ -30,26 +37,21 @@ const SCORE_PRESETS = [
   { value: 700, label: "≥700 NSIA" },
 ] as const;
 
-const ELIGIBILITY = [
-  { label: "R",  title: "REMUCI",      min: 300 },
-  { label: "BP", title: "Baobab Prod", min: 400 },
-  { label: "BC", title: "Baobab Camp", min: 600 },
-  { label: "N",  title: "NSIA",        min: 700 },
-];
+// Eligibility is now derived from scoring config (see state below)
 
-const PAGE_SIZES = [10, 25, 50] as const;
+const API_PAGE_SIZE = 20;
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function Sk({ className, style }: { className?: string; style?: React.CSSProperties }) {
-  return <div className={`animate-pulse rounded-lg bg-bg-tertiary ${className ?? ""}`} style={style} />;
+  return <div className={`animate-pulse rounded-lg ${className ?? ""}`} style={{ background: "#111a2e", ...style }} />;
 }
 
 function SkRow() {
   return (
-    <tr className="border-b border-gray-800">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <td key={i} className="px-4 py-3">
+    <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}>
+      {Array.from({ length: 7 }).map((_, i) => (
+        <td key={i} style={{ padding: "10px 12px" }}>
           <Sk className="h-4" style={{ width: `${50 + (i * 17) % 40}%` } as React.CSSProperties} />
         </td>
       ))}
@@ -63,7 +65,6 @@ function FilterSelect({
   value,
   onChange,
   children,
-  className,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -74,7 +75,17 @@ function FilterSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`px-3 py-2 rounded-lg bg-bg-tertiary border border-gray-700 text-sm text-text-primary focus:outline-none focus:border-accent transition-colors ${className ?? ""}`}
+      style={{
+        height: 30,
+        padding: "0 10px",
+        background: "#0a1020",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 6,
+        color: "#e8edf5",
+        fontSize: 12,
+        outline: "none",
+        cursor: "pointer",
+      }}
     >
       {children}
     </select>
@@ -87,31 +98,39 @@ export default function FarmersPage() {
   const router   = useRouter();
   const pathname = usePathname();
 
+  // ── Scoring config ───────────────────────────────────────────────────────────
+
+  const [scoringConfig, setScoringConfig] = useState<InstitutionScoringConfig | null>(null);
+
+  useEffect(() => {
+    const id = getInstitutionId();
+    setScoringConfig(getActiveConfig(id));
+  }, []);
+
   // ── Data state ──────────────────────────────────────────────────────────────
 
-  const [loading, setLoading]     = useState(true);
+  const [loading,     setLoading]     = useState(true);
   const [farmersList, setFarmersList] = useState<Farmer[]>([]);
-  const [coops, setCoops]         = useState<Cooperative[]>([]);
-  const [scoreMap, setScoreMap]   = useState<Record<string, WakamaScoreResult>>({});
-  const [total, setTotal]         = useState(0);
-  const [error, setError]         = useState<string | null>(null);
+  const [coops,       setCoops]       = useState<Cooperative[]>([]);
+  const [scoreMap,    setScoreMap]    = useState<Record<string, WakamaScoreResult>>({});
+  const [total,       setTotal]       = useState(0);
+  const [error,       setError]       = useState<string | null>(null);
 
-  // ── UI state ────────────────────────────────────────────────────────────────
+  // ── UI / pagination state ────────────────────────────────────────────────────
 
-  const [showMap, setShowMap]         = useState(false);
-  const [search, setSearch]           = useState("");
-  const [debouncedSearch, setDebounced] = useState("");
-  const [scoreMin, setScoreMin]       = useState(0);
-  const [coopFilter, setCoopFilter]   = useState("");
-  const [regionFilter, setRegionFilter] = useState("");
-  const [kycFilter, setKycFilter]     = useState<"all" | "validated" | "pending">("all");
-  const [page, setPage]               = useState(1);
-  const [pageSize, setPageSize]       = useState<10 | 25 | 50>(10);
+  const [showMap,       setShowMap]       = useState(false);
+  const [search,        setSearch]        = useState("");
+  const [debouncedSearch, setDebounced]   = useState("");
+  const [scoreMin,      setScoreMin]      = useState(0);
+  const [coopFilter,    setCoopFilter]    = useState("");
+  const [regionFilter,  setRegionFilter]  = useState("");
+  const [kycFilter,     setKycFilter]     = useState<"all" | "validated" | "pending">("all");
+  const [apiPage,       setApiPage]       = useState(1);
 
   // ── Debounce search ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const t = setTimeout(() => { setDebounced(search); setPage(1); }, 300);
+    const t = setTimeout(() => { setDebounced(search); }, 300);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -122,14 +141,14 @@ export default function FarmersPage() {
     return m ? `/${m[1]}` : "";
   }, [pathname]);
 
-  // ── Fetch ───────────────────────────────────────────────────────────────────
+  // ── Fetch (server-side page) ─────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [farmersRes, coopsRes] = await Promise.all([
-        farmersApi.list({ limit: 50 }),
+        farmersApi.list({ limit: API_PAGE_SIZE, page: apiPage }),
         cooperativesApi.list(),
       ]);
 
@@ -138,7 +157,7 @@ export default function FarmersPage() {
       setTotal(farmersRes.total);
       setCoops(Array.isArray(coopsRes) ? coopsRes : []);
 
-      // Fetch all scores in parallel (best-effort)
+      // Fetch scores in parallel (best-effort)
       const settled = await Promise.allSettled(
         fetchedFarmers.map((f) => scoresApi.getFarmer(f.id))
       );
@@ -152,7 +171,7 @@ export default function FarmersPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiPage]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 
@@ -168,7 +187,7 @@ export default function FarmersPage() {
     [farmersList]
   );
 
-  // ── Client-side filtering ───────────────────────────────────────────────────
+  // ── Client-side filtering (within current server page) ──────────────────────
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.toLowerCase();
@@ -185,20 +204,16 @@ export default function FarmersPage() {
 
   // ── KPI derived values ──────────────────────────────────────────────────────
 
-  const scores      = useMemo(() => Object.values(scoreMap), [scoreMap]);
-  const avgScore    = scores.length
+  const scores    = useMemo(() => Object.values(scoreMap), [scoreMap]);
+  const avgScore  = scores.length
     ? Math.round(scores.reduce((s, r) => s + r.score, 0) / scores.length)
     : 0;
-  const kycCount    = farmersList.filter((f) => f.cniUrl).length;
-  const eligCount   = scores.filter((s) => s.score >= 300).length;
+  const kycCount  = farmersList.filter((f) => f.cniUrl).length;
+  const eligCount = scores.filter((s) => s.score >= 300).length;
 
-  // ── Pagination ──────────────────────────────────────────────────────────────
+  // ── Server-side pagination ───────────────────────────────────────────────────
 
-  const totalPages  = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const safePage    = Math.min(page, totalPages);
-  const paginated   = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-
-  function resetPage() { setPage(1); }
+  const totalServerPages = Math.max(1, Math.ceil(total / API_PAGE_SIZE));
 
   // ── Export ───────────────────────────────────────────────────────────────────
 
@@ -207,23 +222,21 @@ export default function FarmersPage() {
       filtered.map((f) => {
         const s = scoreMap[f.id];
         return {
-          ID:             f.id,
-          Nom:            f.nom,
-          Prénom:         f.prenom,
-          Région:         f.region,
-          Village:        f.village,
-          Coopérative:    f.cooperativeId ? (coopNameMap.get(f.cooperativeId) ?? "—") : "—",
-          Score:          s?.score ?? "",
-          Niveau:         s ? scoreLabel(s.score) : "",
-          KYC:            f.cniUrl ? "Validé" : "En attente",
-          CreatedAt:      f.createdAt,
+          ID:          f.id,
+          Nom:         f.nom,
+          Prénom:      f.prenom,
+          Région:      f.region,
+          Village:     f.village,
+          Coopérative: f.cooperativeId ? (coopNameMap.get(f.cooperativeId) ?? "—") : "—",
+          Score:       s?.score ?? "",
+          Niveau:      s ? scoreLabel(s.score) : "",
+          KYC:         f.cniUrl ? "Validé" : "En attente",
+          CreatedAt:   f.createdAt,
         } as Record<string, unknown>;
       }),
       "agriculteurs.csv"
     );
   }
-
-  // ── Navigate to farmer detail ────────────────────────────────────────────────
 
   function goToFarmer(id: string) {
     router.push(`${localePrefix}/farmers/${id}`);
@@ -232,47 +245,52 @@ export default function FarmersPage() {
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-5">
+    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
 
       {/* ── Page header ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h2 className="text-2xl font-bold text-text-primary">Agriculteurs</h2>
-          <span className="px-2.5 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-xs font-semibold text-accent font-mono">
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <p style={{ fontSize: 14, fontWeight: 500, color: "#e8edf5" }}>Agriculteurs</p>
+          <span className="mono" style={{ fontSize: 11, padding: "2px 8px", borderRadius: 9999, background: "rgba(16,185,129,0.1)", color: "#10b981" }}>
             {total.toLocaleString("fr-FR")}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onClick={() => setShowMap((v) => !v)}
-            className={[
-              "flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors",
-              showMap
-                ? "bg-accent/10 text-accent border-accent/30"
-                : "bg-bg-secondary text-text-secondary border-gray-700 hover:bg-bg-hover hover:text-text-primary",
-            ].join(" ")}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              height: 30, padding: "0 12px", borderRadius: 6, fontSize: 12, fontWeight: 500,
+              background: showMap ? "rgba(16,185,129,0.1)" : "transparent",
+              color: showMap ? "#10b981" : "#5a6a85",
+              border: showMap ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(255,255,255,0.06)",
+              cursor: "pointer",
+            }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-              map
-            </span>
-            Voir carte
+            <span className="material-symbols-outlined" style={{ fontSize: 14, color: "inherit", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>map</span>
+            Carte
           </button>
           <button
             onClick={handleExport}
             disabled={loading || filtered.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-bg-secondary text-text-secondary border border-gray-700 hover:bg-bg-hover hover:text-text-primary disabled:opacity-40 transition-colors"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              height: 30, padding: "0 12px", borderRadius: 6, fontSize: 12, fontWeight: 500,
+              background: "transparent", color: "#5a6a85",
+              border: "1px solid rgba(255,255,255,0.06)",
+              cursor: (loading || filtered.length === 0) ? "not-allowed" : "pointer",
+              opacity: (loading || filtered.length === 0) ? 0.4 : 1,
+            }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-              download
-            </span>
+            <span className="material-symbols-outlined" style={{ fontSize: 14, color: "inherit", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>download</span>
             Export CSV
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-500/10 border border-red-800 text-sm text-red-400">
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>error</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 6, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", fontSize: 12, color: "#ef4444" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>error</span>
           {error}
         </div>
       )}
@@ -287,7 +305,7 @@ export default function FarmersPage() {
           <KPICard
             label="Total agriculteurs"
             value={total.toLocaleString("fr-FR")}
-            sub={`${farmersList.length} chargés`}
+            sub={`${farmersList.length} sur cette page`}
             icon="groups"
             color="#10b981"
           />
@@ -301,7 +319,7 @@ export default function FarmersPage() {
           <KPICard
             label="KYC validés"
             value={kycCount}
-            sub={`${farmersList.length > 0 ? Math.round((kycCount / farmersList.length) * 100) : 0}% du portefeuille`}
+            sub={`${farmersList.length > 0 ? Math.round((kycCount / farmersList.length) * 100) : 0}% de la page`}
             icon="verified_user"
             color="#3b82f6"
           />
@@ -317,18 +335,18 @@ export default function FarmersPage() {
 
       {/* ── Carte toggle ── */}
       {showMap && (
-        <div className="rounded-xl border border-gray-800 overflow-hidden" style={{ height: 320 }}>
+        <div style={{ borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)", overflow: "hidden", height: 320 }}>
           <PlatformMap farmers={filtered} coops={coops} />
         </div>
       )}
 
       {/* ── Filters bar ── */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
         {/* Search */}
-        <div className="relative">
+        <div style={{ position: "relative" }}>
           <span
-            className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-text-muted pointer-events-none"
-            style={{ fontSize: 16 }}
+            className="material-symbols-outlined"
+            style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, color: "#3a4a60", pointerEvents: "none", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}
           >
             search
           </span>
@@ -337,96 +355,78 @@ export default function FarmersPage() {
             placeholder="Rechercher nom, ID…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 pr-3 py-2 rounded-lg bg-bg-tertiary border border-gray-700 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-colors w-52"
+            style={{ height: 30, paddingLeft: 32, paddingRight: search ? 28 : 10, background: "#0a1020", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, color: "#e8edf5", fontSize: 12, outline: "none", width: 200 }}
           />
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#3a4a60", padding: 0 }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 13, fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>close</span>
             </button>
           )}
         </div>
 
-        {/* Score min */}
-        <FilterSelect value={String(scoreMin)} onChange={(v) => { setScoreMin(Number(v)); resetPage(); }}>
+        <FilterSelect value={String(scoreMin)} onChange={(v) => setScoreMin(Number(v))}>
           {SCORE_PRESETS.map((p) => (
             <option key={p.value} value={p.value}>{p.label}</option>
           ))}
         </FilterSelect>
 
-        {/* Coopérative */}
-        <FilterSelect value={coopFilter} onChange={(v) => { setCoopFilter(v); resetPage(); }}>
+        <FilterSelect value={coopFilter} onChange={setCoopFilter}>
           <option value="">Toutes les coops</option>
           {coops.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
         </FilterSelect>
 
-        {/* Région */}
-        <FilterSelect value={regionFilter} onChange={(v) => { setRegionFilter(v); resetPage(); }}>
+        <FilterSelect value={regionFilter} onChange={setRegionFilter}>
           <option value="">Toutes les régions</option>
           {regions.map((r) => <option key={r} value={r}>{r}</option>)}
         </FilterSelect>
 
-        {/* KYC */}
-        <FilterSelect value={kycFilter} onChange={(v) => { setKycFilter(v as typeof kycFilter); resetPage(); }}>
+        <FilterSelect value={kycFilter} onChange={(v) => setKycFilter(v as typeof kycFilter)}>
           <option value="all">KYC — Tous</option>
           <option value="validated">Validé</option>
           <option value="pending">En attente</option>
         </FilterSelect>
 
-        {/* Active filter count + clear */}
         {(debouncedSearch || scoreMin > 0 || coopFilter || regionFilter || kycFilter !== "all") && (
           <button
-            onClick={() => { setSearch(""); setScoreMin(0); setCoopFilter(""); setRegionFilter(""); setKycFilter("all"); resetPage(); }}
-            className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs text-text-secondary border border-gray-700 hover:bg-bg-hover transition-colors"
+            onClick={() => { setSearch(""); setScoreMin(0); setCoopFilter(""); setRegionFilter(""); setKycFilter("all"); }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 30, padding: "0 10px", borderRadius: 6, fontSize: 11, color: "#5a6a85", background: "transparent", border: "1px solid rgba(255,255,255,0.06)", cursor: "pointer" }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>filter_alt_off</span>
-            Réinitialiser
+            <span className="material-symbols-outlined" style={{ fontSize: 13, fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>filter_alt_off</span>
+            Reset
           </button>
         )}
 
-        <span className="ml-auto text-xs text-text-muted">
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "#3a4a60" }}>
           {filtered.length !== farmersList.length
-            ? `${filtered.length} / ${farmersList.length} agriculteurs`
+            ? `${filtered.length} / ${farmersList.length} sur page`
             : `${farmersList.length} agriculteurs`}
         </span>
       </div>
 
       {/* ── Table ── */}
-      <div className="rounded-xl border border-gray-800 overflow-hidden bg-bg-secondary">
+      <div style={{ background: "#0d1423", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8, overflow: "hidden" }}>
 
         {/* Table toolbar */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800">
-          <div className="flex items-center gap-2 text-xs text-text-muted">
-            <span>Afficher</span>
-            {PAGE_SIZES.map((s) => (
-              <button
-                key={s}
-                onClick={() => { setPageSize(s); resetPage(); }}
-                className={[
-                  "px-2 py-0.5 rounded font-medium transition-colors",
-                  pageSize === s
-                    ? "bg-accent text-white"
-                    : "hover:bg-bg-hover text-text-secondary",
-                ].join(" ")}
-              >
-                {s}
-              </button>
-            ))}
-            <span>par page</span>
-          </div>
-          <p className="text-xs text-text-muted">
-            {filtered.length === 0
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <p style={{ fontSize: 11, color: "#5a6a85" }}>
+            {loading
+              ? "Chargement…"
+              : filtered.length === 0
               ? "Aucun résultat"
-              : `${(safePage - 1) * pageSize + 1}–${Math.min(safePage * pageSize, filtered.length)} sur ${filtered.length}`}
+              : `${filtered.length} agriculteur${filtered.length > 1 ? "s" : ""} sur cette page`}
+          </p>
+          <p className="mono" style={{ fontSize: 10, color: "#3a4a60" }}>
+            {API_PAGE_SIZE} par page
           </p>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr className="bg-gray-900">
+              <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                 {[
                   "Agriculteur",
                   "Région / Village",
@@ -434,11 +434,12 @@ export default function FarmersPage() {
                   "Score Wakama",
                   "Éligibilité",
                   "KYC",
-                  "Actions",
-                ].map((h) => (
+                  "",
+                ].map((h, i) => (
                   <th
-                    key={h}
-                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-muted whitespace-nowrap"
+                    key={i}
+                    className="label-xs"
+                    style={{ height: 32, padding: "0 12px", textAlign: "left", whiteSpace: "nowrap" }}
                   >
                     {h}
                   </th>
@@ -449,15 +450,15 @@ export default function FarmersPage() {
             <tbody>
               {loading
                 ? Array.from({ length: 8 }).map((_, i) => <SkRow key={i} />)
-                : paginated.length === 0
+                : filtered.length === 0
                 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-16 text-center text-sm text-text-muted">
+                    <td colSpan={7} style={{ padding: "48px 12px", textAlign: "center", fontSize: 12, color: "#5a6a85" }}>
                       Aucun agriculteur ne correspond aux filtres sélectionnés
                     </td>
                   </tr>
                 )
-                : paginated.map((farmer) => {
+                : filtered.map((farmer) => {
                     const score   = scoreMap[farmer.id];
                     const sval    = score?.score;
                     const coopNom = farmer.cooperativeId
@@ -467,20 +468,22 @@ export default function FarmersPage() {
                     return (
                       <tr
                         key={farmer.id}
-                        className="border-b border-gray-800 last:border-0 hover:bg-gray-800/40 cursor-pointer transition-colors"
+                        style={{ height: 44, borderBottom: "1px solid rgba(255,255,255,0.03)", cursor: "pointer", transition: "background 120ms" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "rgba(255,255,255,0.02)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
                         onClick={() => goToFarmer(farmer.id)}
                       >
                         {/* Farmer: avatar + nom + ID */}
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-accent/20 text-accent text-xs font-bold shrink-0">
+                        <td style={{ padding: "0 12px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%", background: "rgba(16,185,129,0.12)", color: "#10b981", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
                               {initials(farmer.nom, farmer.prenom)}
                             </div>
-                            <div className="min-w-0">
-                              <p className="font-medium text-text-primary truncate max-w-36">
+                            <div style={{ minWidth: 0 }}>
+                              <p style={{ fontSize: 12, fontWeight: 500, color: "#e8edf5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>
                                 {farmer.prenom} {farmer.nom}
                               </p>
-                              <p className="text-xs font-mono text-text-muted truncate">
+                              <p className="mono" style={{ fontSize: 10, color: "#3a4a60" }}>
                                 #{farmer.id.slice(0, 8)}
                               </p>
                             </div>
@@ -488,103 +491,94 @@ export default function FarmersPage() {
                         </td>
 
                         {/* Région / Village */}
-                        <td className="px-4 py-3">
-                          <p className="text-text-primary text-sm">{farmer.region}</p>
-                          <p className="text-text-muted text-xs">{farmer.village}</p>
+                        <td style={{ padding: "0 12px" }}>
+                          <p style={{ fontSize: 12, color: "#e8edf5" }}>{farmer.region}</p>
+                          <p style={{ fontSize: 10, color: "#5a6a85" }}>{farmer.village}</p>
                         </td>
 
                         {/* Coopérative */}
-                        <td className="px-4 py-3">
-                          <span className="text-sm text-text-secondary">{coopNom}</span>
+                        <td style={{ padding: "0 12px", fontSize: 12, color: "#5a6a85" }}>
+                          {coopNom}
                         </td>
 
                         {/* Score Wakama */}
-                        <td className="px-4 py-3">
+                        <td style={{ padding: "0 12px" }}>
                           {sval != null ? (
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className="text-sm font-bold font-mono"
-                                  style={{ color: scoreColor(sval) }}
-                                >
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: scoreColor(sval) }}>
                                   {sval}
                                 </span>
-                                <span
-                                  className="text-xs px-1.5 py-0.5 rounded font-medium"
-                                  style={{
-                                    color: scoreColor(sval),
-                                    backgroundColor: `${scoreColor(sval)}1a`,
-                                  }}
-                                >
+                                <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 5px", borderRadius: 4, color: scoreColor(sval), background: `${scoreColor(sval)}1a` }}>
                                   {scoreLabel(sval)}
                                 </span>
                               </div>
-                              <div className="w-20 h-1 rounded-full bg-bg-tertiary overflow-hidden">
-                                <div
-                                  className="h-full rounded-full"
-                                  style={{
-                                    width: `${sval / 10}%`,
-                                    backgroundColor: scoreColor(sval),
-                                  }}
-                                />
+                              <div style={{ width: 64, height: 2, borderRadius: 9999, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                                <div style={{ height: "100%", borderRadius: 9999, width: `${sval / 10}%`, background: scoreColor(sval) }} />
                               </div>
                             </div>
                           ) : (
-                            <span className="text-xs text-text-muted">—</span>
+                            <span style={{ fontSize: 11, color: "#3a4a60" }}>—</span>
                           )}
                         </td>
 
-                        {/* Éligibilité — 4 icons */}
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1">
-                            {ELIGIBILITY.map(({ label, title, min }) => {
-                              const ok = sval != null && sval >= min;
-                              return (
-                                <span
-                                  key={label}
-                                  title={`${title} ≥${min}`}
-                                  className="material-symbols-outlined transition-opacity"
-                                  style={{
-                                    fontSize: 16,
-                                    color: ok ? "#10b981" : "#374151",
-                                    fontVariationSettings:
-                                      '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20',
-                                  }}
-                                >
-                                  {ok ? "check_circle" : "radio_button_unchecked"}
-                                </span>
-                              );
-                            })}
-                          </div>
+                        {/* Éligibilité — config-driven icons */}
+                        <td style={{ padding: "0 12px" }}>
+                          {(() => {
+                            const adjScore = (score && scoringConfig)
+                              ? applyCustomWeights({ c1: score.c1, c2: score.c2, c3: score.c3, c4: score.c4 }, scoringConfig)
+                              : sval;
+                            const products = scoringConfig?.products.filter((p) => p.active) ?? [];
+                            return (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                  {products.map((p) => {
+                                    const ok = adjScore != null && adjScore >= p.minScore;
+                                    return (
+                                      <span
+                                        key={p.id}
+                                        title={`${p.name} ≥${p.minScore}`}
+                                        className="material-symbols-outlined"
+                                        style={{
+                                          fontSize: 14,
+                                          color: ok ? "#10b981" : "#3a4a60",
+                                          fontVariationSettings: '"FILL" 1, "wght" 300, "GRAD" 0, "opsz" 20',
+                                        }}
+                                      >
+                                        {ok ? "check_circle" : "radio_button_unchecked"}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                                {scoringConfig && hasCustomWeights(scoringConfig) && adjScore != null && (
+                                  <span style={{ fontSize: 9, color: "#06b6d4" }}>ajusté</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         {/* KYC */}
-                        <td className="px-4 py-3">
+                        <td style={{ padding: "0 12px" }}>
                           {farmer.cniUrl ? (
-                            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-800">
-                              <span className="material-symbols-outlined" style={{ fontSize: 11, fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20' }}>
-                                check_circle
-                              </span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 500, padding: "2px 7px", borderRadius: 9999, background: "rgba(16,185,129,0.12)", color: "#10b981" }}>
                               Validé
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-800">
-                              <span className="material-symbols-outlined" style={{ fontSize: 11, fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20' }}>
-                                schedule
-                              </span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 500, padding: "2px 7px", borderRadius: 9999, background: "rgba(245,158,11,0.12)", color: "#f59e0b" }}>
                               En attente
                             </span>
                           )}
                         </td>
 
                         {/* Actions */}
-                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <td style={{ padding: "0 12px" }} onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => goToFarmer(farmer.id)}
-                            className="flex items-center justify-center w-8 h-8 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors"
+                            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 5, background: "transparent", border: "1px solid rgba(255,255,255,0.06)", cursor: "pointer", color: "#5a6a85" }}
                             title="Voir le dossier"
                           >
-                            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 14, color: "inherit", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>
                               visibility
                             </span>
                           </button>
@@ -597,74 +591,32 @@ export default function FarmersPage() {
           </table>
         </div>
 
-        {/* ── Pagination ── */}
-        {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
-            <p className="text-xs text-text-muted">
-              Page {safePage} sur {totalPages}
-            </p>
-            <div className="flex items-center gap-1">
+        {/* ── Server-side pagination ── */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <p style={{ fontSize: 11, color: "#5a6a85" }}>
+            Page <span style={{ fontWeight: 600, color: "#e8edf5" }}>{apiPage}</span> sur{" "}
+            <span style={{ fontWeight: 600, color: "#e8edf5" }}>{totalServerPages}</span>
+            <span style={{ marginLeft: 8, color: "#3a4a60" }}>({total.toLocaleString("fr-FR")} au total)</span>
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {[
+              { icon: "first_page", action: () => setApiPage(1), disabled: loading || apiPage === 1, title: "Première" },
+              { icon: "chevron_left", action: () => setApiPage((p) => Math.max(1, p - 1)), disabled: loading || apiPage === 1 },
+              { icon: "chevron_right", action: () => setApiPage((p) => Math.min(totalServerPages, p + 1)), disabled: loading || apiPage === totalServerPages },
+              { icon: "last_page", action: () => setApiPage(totalServerPages), disabled: loading || apiPage === totalServerPages, title: "Dernière" },
+            ].map((btn, i) => (
               <button
-                onClick={() => setPage(1)}
-                disabled={safePage === 1}
-                className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Première page"
+                key={i}
+                onClick={btn.action}
+                disabled={btn.disabled}
+                title={btn.title}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 5, background: "#0d1423", border: "1px solid rgba(255,255,255,0.06)", cursor: btn.disabled ? "not-allowed" : "pointer", opacity: btn.disabled ? 0.3 : 1, color: "#5a6a85" }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>first_page</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 14, color: "inherit", fontVariationSettings: '"FILL" 0, "wght" 300, "GRAD" 0, "opsz" 20' }}>{btn.icon}</span>
               </button>
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={safePage === 1}
-                className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_left</span>
-              </button>
-
-              {/* Page numbers with ellipsis */}
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
-                .reduce<(number | "…")[]>((acc, p, idx, arr) => {
-                  if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
-                  acc.push(p);
-                  return acc;
-                }, [])
-                .map((p, i) =>
-                  p === "…" ? (
-                    <span key={`e-${i}`} className="px-1 text-xs text-text-muted">…</span>
-                  ) : (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p as number)}
-                      className={[
-                        "flex items-center justify-center w-7 h-7 rounded-md text-xs font-medium transition-colors",
-                        p === safePage
-                          ? "bg-accent text-white"
-                          : "text-text-secondary hover:bg-bg-hover",
-                      ].join(" ")}
-                    >
-                      {p}
-                    </button>
-                  )
-                )}
-
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={safePage === totalPages}
-                className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>chevron_right</span>
-              </button>
-              <button
-                onClick={() => setPage(totalPages)}
-                disabled={safePage === totalPages}
-                className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Dernière page"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>last_page</span>
-              </button>
-            </div>
+            ))}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

@@ -13,6 +13,13 @@ import {
   parcelles as parcellesApi,
   scores as scoresApi,
 } from "@/src/lib/api";
+import { getInstitutionId } from "@/src/lib/auth";
+import {
+  applyCustomWeights,
+  getActiveConfig,
+  hasCustomWeights,
+  type InstitutionScoringConfig,
+} from "@/src/lib/scoringConfig";
 import {
   formatFCFA,
   formatScore,
@@ -39,14 +46,14 @@ function toArray<T>(raw: unknown): T[] {
 }
 
 function Sk({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-lg bg-bg-tertiary ${className}`} />;
+  return <div className={`animate-pulse rounded-lg ${className}`} style={{ backgroundColor: "#111a2e" }} />;
 }
 
-const CREDIT_STATUS: Record<CreditStatus, { label: string; classes: string }> = {
-  PENDING:   { label: "En attente", classes: "bg-amber-500/10 text-amber-400 border border-amber-800" },
-  REVIEWING: { label: "En cours",   classes: "bg-blue-500/10 text-blue-400 border border-blue-800" },
-  APPROVED:  { label: "Approuvé",   classes: "bg-emerald-500/10 text-emerald-400 border border-emerald-800" },
-  REJECTED:  { label: "Rejeté",     classes: "bg-red-500/10 text-red-400 border border-red-800" },
+const CREDIT_STATUS: Record<CreditStatus, { label: string; style: React.CSSProperties }> = {
+  PENDING:   { label: "En attente", style: { backgroundColor: "rgba(245,158,11,0.1)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" } },
+  REVIEWING: { label: "En cours",   style: { backgroundColor: "rgba(59,130,246,0.1)",  color: "#3b82f6", border: "1px solid rgba(59,130,246,0.3)"  } },
+  APPROVED:  { label: "Approuvé",   style: { backgroundColor: "rgba(16,185,129,0.1)", color: "#10b981", border: "1px solid rgba(16,185,129,0.3)" } },
+  REJECTED:  { label: "Rejeté",     style: { backgroundColor: "rgba(239,68,68,0.1)",   color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)"   } },
 };
 
 function ndviStyle(ndvi: number | null | undefined): { label: string; classes: string } {
@@ -64,9 +71,11 @@ interface ApprovalModalProps {
   scoreData: WakamaScoreResult | null;
   onClose: () => void;
   onConfirm: (montant: number, taux: number, duree: number, conditions: string) => void;
+  isSubmitting?: boolean;
+  submitError?: string | null;
 }
 
-function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm }: ApprovalModalProps) {
+function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm, isSubmitting = false, submitError }: ApprovalModalProps) {
   const [montant, setMontant] = useState(scoreData?.montantMax ?? credit.montant);
   const [taux, setTaux] = useState(1.60);
   const [duree, setDuree] = useState(credit.duree);
@@ -78,7 +87,8 @@ function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm }: Approv
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md rounded-2xl bg-bg-secondary border border-gray-700 p-6 shadow-2xl"
+        className="relative w-full max-w-md rounded-2xl bg-bg-secondary p-6 shadow-2xl"
+        style={{ border: "1px solid rgba(255,255,255,0.06)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold text-text-primary mb-1 flex items-center gap-2">
@@ -155,18 +165,26 @@ function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm }: Approv
           </label>
         </div>
 
-        <div className="flex gap-3 mt-6">
+        {submitError && (
+          <div className="mt-4 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">
+            {submitError}
+          </div>
+        )}
+
+        <div className="flex gap-3 mt-4">
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-700 bg-bg-tertiary px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg border border-gray-700 bg-bg-tertiary px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
           >
             Annuler
           </button>
           <button
             onClick={() => onConfirm(montant, taux, duree, conditions)}
-            className="flex-1 rounded-lg bg-accent hover:bg-accent-hover px-4 py-2 text-sm font-semibold text-white transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg bg-accent hover:bg-accent-hover px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            Confirmer
+            {isSubmitting ? "Envoi…" : "Confirmer"}
           </button>
         </div>
       </div>
@@ -179,9 +197,11 @@ function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm }: Approv
 interface RejectionModalProps {
   onClose: () => void;
   onConfirm: (motif: string, note: string) => void;
+  isSubmitting?: boolean;
+  submitError?: string | null;
 }
 
-function RejectionModal({ onClose, onConfirm }: RejectionModalProps) {
+function RejectionModal({ onClose, onConfirm, isSubmitting = false, submitError }: RejectionModalProps) {
   const [motif, setMotif] = useState("Score insuffisant (< 300)");
   const [note, setNote] = useState("");
 
@@ -191,7 +211,8 @@ function RejectionModal({ onClose, onConfirm }: RejectionModalProps) {
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-md rounded-2xl bg-bg-secondary border border-gray-700 p-6 shadow-2xl"
+        className="relative w-full max-w-md rounded-2xl bg-bg-secondary p-6 shadow-2xl"
+        style={{ border: "1px solid rgba(255,255,255,0.06)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold text-text-primary mb-4 flex items-center gap-2">
@@ -233,18 +254,26 @@ function RejectionModal({ onClose, onConfirm }: RejectionModalProps) {
           </label>
         </div>
 
-        <div className="flex gap-3 mt-6">
+        {submitError && (
+          <div className="mt-4 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">
+            {submitError}
+          </div>
+        )}
+
+        <div className="flex gap-3 mt-4">
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-700 bg-bg-tertiary px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg border border-gray-700 bg-bg-tertiary px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
           >
             Annuler
           </button>
           <button
             onClick={() => onConfirm(motif, note)}
-            className="flex-1 rounded-lg bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-semibold text-white transition-colors"
+            disabled={isSubmitting}
+            className="flex-1 rounded-lg bg-red-600 hover:bg-red-700 px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50"
           >
-            Confirmer le rejet
+            {isSubmitting ? "Envoi…" : "Confirmer le rejet"}
           </button>
         </div>
       </div>
@@ -275,6 +304,12 @@ export default function FarmerDetailPage() {
   const id = params.id as string;
   const locale = (params.locale as string) ?? "fr";
 
+  const [scoringConfig, setScoringConfig] = useState<InstitutionScoringConfig | null>(null);
+
+  useEffect(() => {
+    setScoringConfig(getActiveConfig(getInstitutionId()));
+  }, []);
+
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
   const [farmer, setFarmer]             = useState<Farmer | null>(null);
@@ -287,6 +322,8 @@ export default function FarmerDetailPage() {
   const [showRejection, setShowRejection] = useState(false);
   const [selectedCredit, setSelectedCredit] = useState<CreditRequest | null>(null);
   const [toast, setToast]               = useState<string | null>(null);
+  const [isSubmitting,  setIsSubmitting] = useState(false);
+  const [modalError,    setModalError]   = useState<string | null>(null);
 
   function showToastMsg(msg: string) {
     setToast(msg);
@@ -323,32 +360,51 @@ export default function FarmerDetailPage() {
     });
   }, [id]);
 
-  async function handleApprove(montant: number, taux: number, _duree: number, _conditions: string) {
+  async function handleApprove(montant: number, taux: number, duree: number, _conditions: string) {
     if (!selectedCredit) return;
+    setIsSubmitting(true);
+    setModalError(null);
+    console.log("[farmer] approve →", selectedCredit.id, { montant, taux, duree });
     try {
-      await creditRequestsApi.updateStatus(selectedCredit.id, "APPROVED", {
-        montantAccorde: montant,
-        tauxApplique:   taux,
-      });
-      showToastMsg("Crédit approuvé ✅");
+      const result = await creditRequestsApi.approveCreditDecision(selectedCredit.id, { montant, taux, duree });
+      console.log("[farmer] approve ← OK", result);
+      setCredits(prev => prev.map(c =>
+        c.id === selectedCredit.id
+          ? { ...c, statut: "APPROVED" as const, montantAccorde: montant, tauxApplique: taux }
+          : c
+      ));
       setShowApproval(false);
       setSelectedCredit(null);
-      await refreshCredits();
-    } catch {
-      showToastMsg("Erreur lors de l'approbation");
+      showToastMsg("Crédit approuvé ✓");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors de l'approbation";
+      console.error("[farmer] approve ← ERROR", msg);
+      setModalError(msg);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
   async function handleReject(motif: string, _note: string) {
     if (!selectedCredit) return;
+    setIsSubmitting(true);
+    setModalError(null);
+    console.log("[farmer] reject →", selectedCredit.id, { motif });
     try {
-      await creditRequestsApi.updateStatus(selectedCredit.id, "REJECTED");
-      showToastMsg(`Demande rejetée — ${motif}`);
+      const result = await creditRequestsApi.rejectCreditDecision(selectedCredit.id, { motif });
+      console.log("[farmer] reject ← OK", result);
+      setCredits(prev => prev.map(c =>
+        c.id === selectedCredit.id ? { ...c, statut: "REJECTED" as const } : c
+      ));
       setShowRejection(false);
       setSelectedCredit(null);
-      await refreshCredits();
-    } catch {
-      showToastMsg("Erreur lors du rejet");
+      showToastMsg(`Demande rejetée — ${motif}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors du rejet";
+      console.error("[farmer] reject ← ERROR", msg);
+      setModalError(msg);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -420,19 +476,23 @@ export default function FarmerDetailPage() {
           credit={selectedCredit}
           farmer={farmer}
           scoreData={scoreData}
-          onClose={() => { setShowApproval(false); setSelectedCredit(null); }}
+          onClose={() => { setShowApproval(false); setSelectedCredit(null); setModalError(null); }}
           onConfirm={handleApprove}
+          isSubmitting={isSubmitting}
+          submitError={modalError}
         />
       )}
       {showRejection && selectedCredit && (
         <RejectionModal
-          onClose={() => { setShowRejection(false); setSelectedCredit(null); }}
+          onClose={() => { setShowRejection(false); setSelectedCredit(null); setModalError(null); }}
           onConfirm={handleReject}
+          isSubmitting={isSubmitting}
+          submitError={modalError}
         />
       )}
 
       {/* ══════════════════════════════════════════════════════ STICKY HEADER */}
-      <div className="sticky top-0 z-10 bg-bg-primary/95 backdrop-blur-sm border-b border-gray-800 px-6 py-4">
+      <div className="sticky top-0 z-10 bg-bg-primary/95 backdrop-blur-sm px-6 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
         <div className="flex items-center justify-between gap-4">
 
           {/* Left — breadcrumb + badges */}
@@ -497,7 +557,7 @@ export default function FarmerDetailPage() {
         <div className="grid grid-cols-5 gap-6">
 
           {/* Profile card — col-span-3 */}
-          <div className="col-span-3 rounded-xl bg-bg-secondary border border-gray-800 p-6">
+          <div className="col-span-3 rounded-xl bg-bg-secondary p-6" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
             {/* Avatar + name header */}
             <div className="flex items-start gap-5 mb-6">
               <div className="w-20 h-20 rounded-full bg-accent flex items-center justify-center shrink-0 overflow-hidden">
@@ -510,7 +570,7 @@ export default function FarmerDetailPage() {
                 )}
               </div>
               <div className="min-w-0">
-                <h1 className="text-xl font-bold text-text-primary truncate">
+                <h1 style={{ fontSize: 14, fontWeight: 500, color: "#e8edf5" }} className="truncate">
                   {farmer.prenom} {farmer.nom}
                 </h1>
                 <span className="inline-block mt-1 px-2 py-0.5 rounded bg-bg-tertiary text-text-muted text-xs font-mono">
@@ -608,7 +668,7 @@ export default function FarmerDetailPage() {
           </div>
 
           {/* Score card — col-span-2 */}
-          <div className="col-span-2 rounded-xl bg-bg-secondary border border-gray-800 p-6">
+          <div className="col-span-2 rounded-xl bg-bg-secondary p-6" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
             {scoreData ? (
               <div className="space-y-5">
                 <ScoreGauge
@@ -642,35 +702,53 @@ export default function FarmerDetailPage() {
 
                 {/* Product eligibility */}
                 <div>
-                  <p className="text-xs text-text-muted font-medium uppercase tracking-wide mb-2.5">
-                    Éligibilité produits
-                  </p>
-                  <div className="space-y-2">
-                    {PRODUCTS.map((p) => {
-                      const eligible = score >= p.threshold;
-                      return (
-                        <div key={p.name} className="flex items-center gap-2">
-                          <span
-                            className="material-symbols-outlined text-text-muted shrink-0"
-                            style={{ fontSize: 15 }}
-                          >
-                            {p.icon}
-                          </span>
-                          <span className="text-sm text-text-secondary flex-1">{p.name}</span>
-                          <span className="text-xs text-text-muted mr-1">≥{p.threshold}</span>
-                          <span
-                            className={`material-symbols-outlined shrink-0 ${eligible ? "text-emerald-400" : "text-red-400"}`}
-                            style={{
-                              fontSize: 18,
-                              fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20',
-                            }}
-                          >
-                            {eligible ? "check_circle" : "cancel"}
-                          </span>
-                        </div>
-                      );
-                    })}
+                  <div className="flex items-center justify-between mb-2.5">
+                    <p className="text-xs text-text-muted font-medium uppercase tracking-wide">
+                      Éligibilité produits
+                    </p>
+                    {scoringConfig && hasCustomWeights(scoringConfig) && (
+                      <span style={{ fontSize: 9, color: "#06b6d4" }}>Score ajusté selon vos critères</span>
+                    )}
                   </div>
+                  {(() => {
+                    const adjScore = (scoreData && scoringConfig)
+                      ? applyCustomWeights({ c1: scoreData.c1, c2: scoreData.c2, c3: scoreData.c3, c4: scoreData.c4 }, scoringConfig)
+                      : score;
+                    const products = scoringConfig?.products.filter((p) => p.active) ?? [
+                      { id: "REMUCI", name: "REMUCI", minScore: 300 },
+                      { id: "BP", name: "Baobab Prod", minScore: 400 },
+                      { id: "BC", name: "Baobab Camp", minScore: 600 },
+                      { id: "NSIA", name: "NSIA Pack Paysan", minScore: 700 },
+                    ];
+                    return (
+                      <div className="space-y-2">
+                        {products.map((p) => {
+                          const eligible = adjScore >= p.minScore;
+                          return (
+                            <div key={p.id} className="flex items-center gap-2">
+                              <span
+                                className="material-symbols-outlined text-text-muted shrink-0"
+                                style={{ fontSize: 15 }}
+                              >
+                                payments
+                              </span>
+                              <span className="text-sm text-text-secondary flex-1">{p.name}</span>
+                              <span className="text-xs text-text-muted mr-1">≥{p.minScore}</span>
+                              <span
+                                className={`material-symbols-outlined shrink-0 ${eligible ? "text-emerald-400" : "text-red-400"}`}
+                                style={{
+                                  fontSize: 18,
+                                  fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20',
+                                }}
+                              >
+                                {eligible ? "check_circle" : "cancel"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Recommendations */}
@@ -699,8 +777,8 @@ export default function FarmerDetailPage() {
 
         {/* ── Section 2: Capacité financière C1 ── */}
         {scoreData?.details?.c1 && (
-          <div className="rounded-xl bg-bg-secondary border border-gray-800 p-6">
-            <h3 className="text-sm font-semibold text-text-primary mb-4">
+          <div className="rounded-xl bg-bg-secondary p-6" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+            <h3 className="label-xs mb-4">
               Capacité financière — C1 Capacité
             </h3>
             <div className="grid grid-cols-4 gap-4 mb-4">
@@ -737,9 +815,9 @@ export default function FarmerDetailPage() {
         )}
 
         {/* ── Section 3: Parcelles ── */}
-        <div className="rounded-xl bg-bg-secondary border border-gray-800 p-6">
+        <div className="rounded-xl bg-bg-secondary p-6" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+            <h3 className="label-xs flex items-center gap-2">
               Parcelles
               <span className="px-2 py-0.5 rounded-full bg-bg-tertiary text-text-muted text-xs font-mono">
                 {parcellesList.length}
@@ -760,7 +838,7 @@ export default function FarmerDetailPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-800">
+                  <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                     {["Nom", "Culture", "Surface (ha)", "NDVI", "Stade", "Région", "Polygone"].map((h) => (
                       <th
                         key={h}
@@ -804,8 +882,8 @@ export default function FarmerDetailPage() {
         </div>
 
         {/* ── Section 4: Credit requests ── */}
-        <div className="rounded-xl bg-bg-secondary border border-gray-800 p-6">
-          <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+        <div className="rounded-xl bg-bg-secondary p-6" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+          <h3 className="label-xs mb-4 flex items-center gap-2">
             Demandes de crédit
             <span className="px-2 py-0.5 rounded-full bg-bg-tertiary text-text-muted text-xs font-mono">
               {credits.length}
@@ -821,7 +899,8 @@ export default function FarmerDetailPage() {
                 return (
                   <div
                     key={cr.id}
-                    className="rounded-lg border border-gray-800 bg-bg-tertiary/40 p-4"
+                    className="rounded-lg bg-bg-tertiary/40 p-4"
+                    style={{ border: "1px solid rgba(255,255,255,0.06)" }}
                   >
                     {/* Top */}
                     <div className="flex items-center gap-3 mb-2">
@@ -829,7 +908,7 @@ export default function FarmerDetailPage() {
                         {formatFCFA(cr.montant)}
                       </span>
                       <span className="text-text-muted text-xs">{cr.duree} mois</span>
-                      <span className={`ml-auto px-2.5 py-0.5 rounded-full text-xs font-medium ${statusStyle.classes}`}>
+                      <span className="ml-auto px-2.5 py-0.5 rounded-full text-xs font-medium" style={statusStyle.style}>
                         {statusStyle.label}
                       </span>
                     </div>
@@ -868,8 +947,8 @@ export default function FarmerDetailPage() {
         </div>
 
         {/* ── Section 5: Alerts ── */}
-        <div className="rounded-xl bg-bg-secondary border border-gray-800 p-6">
-          <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+        <div className="rounded-xl bg-bg-secondary p-6" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+          <h3 className="label-xs mb-4 flex items-center gap-2">
             Alertes récentes
             <span className="px-2 py-0.5 rounded-full bg-bg-tertiary text-text-muted text-xs font-mono">
               {alertsList.length}

@@ -2,76 +2,84 @@ interface KPICardProps {
   label: string;
   value: string | number;
   sub?: string;
-  icon: string;
-  /** Positive = growth (green arrow up), negative = decline (red arrow down) */
+  /** kept for API compat — no longer renders an icon */
+  icon?: string;
+  /** Positive = growth (green), negative = decline (red) */
   trend?: number;
-  /** Optional hex color or Tailwind CSS variable for the icon background */
+  /** Optional hex color for the accent left-border */
   color?: string;
+  /** Show accent 2px left border */
+  accent?: boolean;
 }
 
 export default function KPICard({
   label,
   value,
   sub,
-  icon,
   trend,
-  color = "#10b981",
+  color,
+  accent = false,
 }: KPICardProps) {
-  const trendUp = trend !== undefined && trend >= 0;
+  const trendUp  = trend !== undefined && trend >= 0;
   const trendAbs = trend !== undefined ? Math.abs(trend) : 0;
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl bg-bg-secondary border border-gray-800 p-5 hover:border-gray-700 transition-colors">
-      {/* Top row: label + icon */}
+    <div
+      style={{
+        background: "#0d1423",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderLeft: accent
+          ? `2px solid ${color ?? "#10b981"}`
+          : "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 8,
+        padding: "14px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {/* Top row: label + trend badge */}
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium text-text-secondary leading-tight">
-          {label}
-        </p>
-        <div
-          className="flex items-center justify-center w-9 h-9 rounded-lg shrink-0"
-          style={{ backgroundColor: `${color}1a` }}
-        >
+        <p className="label-xs">{label}</p>
+        {trend !== undefined && (
           <span
-            className="material-symbols-outlined"
-            style={{ fontSize: 20, color }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 2,
+              fontSize: 10,
+              fontWeight: 500,
+              padding: "2px 6px",
+              borderRadius: 9999,
+              background: trendUp
+                ? "rgba(16,185,129,0.12)"
+                : "rgba(239,68,68,0.12)",
+              color: trendUp ? "#10b981" : "#ef4444",
+              whiteSpace: "nowrap",
+            }}
           >
-            {icon}
+            {trendUp ? "↑" : "↓"} {trendAbs}%
           </span>
-        </div>
-      </div>
-
-      {/* Value */}
-      <div className="space-y-1">
-        <p className="text-3xl font-bold text-text-primary font-mono leading-none">
-          {value}
-        </p>
-        {sub && (
-          <p className="text-xs text-text-muted">{sub}</p>
         )}
       </div>
 
-      {/* Trend */}
-      {trend !== undefined && (
-        <div className="flex items-center gap-1">
-          <span
-            className="material-symbols-outlined"
-            style={{
-              fontSize: 16,
-              color: trendUp ? "#10b981" : "#ef4444",
-              fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20',
-            }}
-          >
-            {trendUp ? "trending_up" : "trending_down"}
-          </span>
-          <span
-            className="text-xs font-medium"
-            style={{ color: trendUp ? "#10b981" : "#ef4444" }}
-          >
-            {trendUp ? "+" : "-"}{trendAbs}%
-          </span>
-          <span className="text-xs text-text-muted">vs mois dernier</span>
-        </div>
-      )}
+      {/* Value */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <p
+          className="mono"
+          style={{
+            fontSize: 22,
+            fontWeight: 600,
+            color: "#e8edf5",
+            lineHeight: 1,
+          }}
+        >
+          {value}
+        </p>
+        {sub && (
+          <p style={{ fontSize: 11, color: "#5a6a85" }}>{sub}</p>
+        )}
+      </div>
     </div>
   );
 }

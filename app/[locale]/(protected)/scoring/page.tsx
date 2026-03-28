@@ -45,7 +45,7 @@ const BUCKETS = [
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function Sk({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-lg bg-bg-tertiary ${className}`} />;
+  return <div className={`animate-pulse rounded-lg ${className}`} style={{ backgroundColor: "#111a2e" }} />;
 }
 
 /**
@@ -73,11 +73,11 @@ function compactFCFA(n: number): string {
   return Math.round(n).toLocaleString("fr-FR");
 }
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "#111827",
-  border: "1px solid #374151",
-  borderRadius: 8,
-  fontSize: 12,
+const CHART_TOOLTIP_CONTENT = {
+  backgroundColor: "#0d1423",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 6,
+  fontSize: 11,
 };
 
 const C_LABELS: Record<keyof Weights, string> = {
@@ -292,7 +292,7 @@ export default function ScoringPage() {
 
       {/* ── Page header ── */}
       <div>
-        <h1 className="text-lg font-bold text-text-primary">Scoring & Risques</h1>
+        <h1 style={{ fontSize: 14, fontWeight: 500, color: "#e8edf5" }}>Scoring & Risques</h1>
         <p className="text-sm text-text-secondary mt-0.5">
           Analyse du portefeuille · {entries.length} agriculteur{entries.length !== 1 ? "s" : ""} scorés
         </p>
@@ -342,8 +342,8 @@ export default function ScoringPage() {
       <div className="grid grid-cols-2 gap-6">
 
         {/* Distribution des scores */}
-        <div className="rounded-xl bg-bg-secondary border border-gray-800 p-5">
-          <h3 className="text-sm font-semibold text-text-primary mb-4">
+        <div className="rounded-xl bg-bg-secondary p-5" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+          <h3 className="label-xs mb-4">
             Distribution des scores
           </h3>
           <div style={{ width: "100%", height: 260, minHeight: 260 }}>
@@ -360,9 +360,9 @@ export default function ScoringPage() {
                 />
                 <YAxis stroke="#374151" tick={{ fill: "#6b7280", fontSize: 11 }} />
                 <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  labelStyle={{ color: "#9ca3af" }}
-                  itemStyle={{ color: "#f9fafb" }}
+                  contentStyle={CHART_TOOLTIP_CONTENT}
+                  labelStyle={{ color: "#5a6a85" }}
+                  itemStyle={{ color: "#e8edf5" }}
                   formatter={(v) => [v, "Agriculteurs"]}
                 />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]} name="Agriculteurs">
@@ -376,8 +376,8 @@ export default function ScoringPage() {
         </div>
 
         {/* Score par filière — horizontal bars */}
-        <div className="rounded-xl bg-bg-secondary border border-gray-800 p-5">
-          <h3 className="text-sm font-semibold text-text-primary mb-4">
+        <div className="rounded-xl bg-bg-secondary p-5" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+          <h3 className="label-xs mb-4">
             Score moyen par filière
           </h3>
           {byFiliere.length === 0 ? (
@@ -407,9 +407,9 @@ export default function ScoringPage() {
                     tick={{ fill: "#9ca3af", fontSize: 11 }}
                   />
                   <Tooltip
-                    contentStyle={TOOLTIP_STYLE}
-                    labelStyle={{ color: "#9ca3af" }}
-                    itemStyle={{ color: "#f9fafb" }}
+                    contentStyle={CHART_TOOLTIP_CONTENT}
+                    labelStyle={{ color: "#5a6a85" }}
+                    itemStyle={{ color: "#e8edf5" }}
                     formatter={(v) => [v, "Score moyen"]}
                   />
                   <Bar dataKey="avgScore" radius={[0, 4, 4, 0]} name="Score moyen">
@@ -425,8 +425,8 @@ export default function ScoringPage() {
       </div>
 
       {/* ═══════════════════════════════════ SECTION 3 — By Region */}
-      <div className="rounded-xl bg-bg-secondary border border-gray-800 p-5">
-        <h3 className="text-sm font-semibold text-text-primary mb-4">
+      <div className="rounded-xl bg-bg-secondary p-5" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+        <h3 className="label-xs mb-4">
           Score par région
         </h3>
         {byRegion.length === 0 ? (
@@ -435,7 +435,7 @@ export default function ScoringPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-800">
+                <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                   {["Région", "Nb farmers", "Score moyen", "% Éligibles", "Revenu total estimé"].map((h) => (
                     <th
                       key={h}
@@ -496,7 +496,7 @@ export default function ScoringPage() {
       </div>
 
       {/* ═══════════════════════════════════ SECTION 4 — Formula Adjuster */}
-      <div className="rounded-xl bg-bg-secondary border border-gray-800 p-5">
+      <div className="rounded-xl bg-bg-secondary p-5" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
         <div className="mb-5">
           <h3 className="text-sm font-bold text-text-primary">
             ⚙️ Personnaliser les critères de scoring
@@ -667,8 +667,8 @@ export default function ScoringPage() {
       </div>
 
       {/* ═══════════════════════════════════ SECTION 5 — High risk farmers */}
-      <div className="rounded-xl bg-bg-secondary border border-gray-800 p-5">
-        <h3 className="text-sm font-bold text-text-primary mb-4 flex items-center gap-2">
+      <div className="rounded-xl bg-bg-secondary p-5" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+        <h3 className="label-xs mb-4 flex items-center gap-2">
           ⚠️ Farmers à surveiller
           <span className="px-2 py-0.5 rounded-full bg-red-500/10 border border-red-800 text-red-400 text-xs font-mono">
             {highRisk.length}
@@ -683,7 +683,7 @@ export default function ScoringPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-800">
+                <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                   {["Nom", "Score", "Région", "Culture principale", "Dernière activité", ""].map(
                     (h) => (
                       <th
