@@ -235,6 +235,19 @@ export const weather = {
   },
 };
 
+// ─── Institutions ─────────────────────────────────────────────────────────────
+
+export async function saveScoringConfig(
+  institutionId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any
+): Promise<unknown> {
+  return apiFetch(`/v1/institutions/${institutionId}/scoring-config`, {
+    method: "PATCH",
+    body: JSON.stringify(config),
+  });
+}
+
 // ─── IoT ─────────────────────────────────────────────────────────────────────
 
 export const iot = {

@@ -14,6 +14,7 @@ import {
   type InstitutionProduct,
 } from "@/src/lib/scoringConfig";
 import { getInstitutionId, getInstitutionName } from "@/src/lib/auth";
+import { saveScoringConfig } from "@/src/lib/api";
 import { formatFCFA, scoreColor } from "@/src/lib/utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -154,6 +155,8 @@ export default function ScoringConfigPage() {
   const [activeTab, setActiveTab] = useState(0);
   const [saved, setSaved] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [institutionId, setInstitutionId] = useState("default");
   const [institutionName, setInstitutionName] = useState("");
 
@@ -210,44 +213,36 @@ export default function ScoringConfigPage() {
     []
   );
 
-  /** Saves to API with localStorage fallback. */
+  /** Saves to API (PATCH /v1/institutions/:id/scoring-config) with localStorage fallback. */
   const handleSave = useCallback(async () => {
     if (!config) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      const token =
-        typeof window !== "undefined"
-          ? localStorage.getItem("wakama_fmi_token")
-          : null;
-      const url = `${API_BASE}/v1/institutions/${institutionId}/scoring-config`;
-
-      // Attempt POST first; if 405 or already exists, fall through to PATCH
-      let res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(config),
+      await saveScoringConfig(institutionId, {
+        weightC1: config.weights.c1_capacite,
+        weightC2: config.weights.c2_caractere,
+        weightC3: config.weights.c3_collateral,
+        weightC4: config.weights.c4_conditions,
+        c1Rules: config.c1Rules,
+        c2Rules: config.c2Rules,
+        c3Rules: config.c3Rules,
+        c4Rules: config.c4Rules,
+        products: config.products,
+        creditConditions: config.creditConditions,
+        riskProfile: config.riskProfile,
       });
-
-      if (!res.ok && res.status === 409) {
-        // Resource exists — try PATCH
-        res = await fetch(url, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(config),
-        });
-      }
-      // If still not ok we fall through — config is already saved locally
-    } catch {
-      // API unavailable — localStorage copy is already up-to-date from updateConfig
+      saveConfigLocally(config);
+      setSaved(true);
+      setToast("Configuration sauvegardée ✓");
+      setTimeout(() => setToast(null), 3500);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors de la sauvegarde";
+      setSaveError(msg);
+      // localStorage already up-to-date from updateConfig — keep unsaved indicator
+    } finally {
+      setSaving(false);
     }
-    setSaved(true);
-    setSaving(false);
   }, [config, institutionId]);
 
   /** Resets config to factory defaults. */
@@ -321,6 +316,38 @@ export default function ScoringConfigPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: "24px 24px 60px", maxWidth: 960, margin: "0 auto" }}>
+
+      {/* ── Toast ─────────────────────────────────────────────────────────── */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            top: 24,
+            right: 24,
+            zIndex: 100,
+            background: "var(--bg-card)",
+            border: "1px solid rgba(16,185,129,0.3)",
+            borderRadius: 10,
+            padding: "10px 16px",
+            fontSize: 13,
+            color: "#10b981",
+            fontWeight: 500,
+            boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 16, fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20' }}
+          >
+            check_circle
+          </span>
+          {toast}
+        </div>
+      )}
+
       {/* ── HEADER ─────────────────────────────────────────────────────────── */}
       <div
         style={{
@@ -442,6 +469,32 @@ export default function ScoringConfigPage() {
             Modifications non sauvegardées — les changements sont appliqués en aperçu temps
             réel mais non permanents
           </span>
+        </div>
+      )}
+
+      {/* ── Save error ────────────────────────────────────────────────────── */}
+      {saveError && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: "10px 14px",
+            borderRadius: 8,
+            background: "rgba(239,68,68,0.08)",
+            border: "1px solid rgba(239,68,68,0.25)",
+            fontSize: 12,
+            color: "#ef4444",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 14, fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20' }}
+          >
+            error
+          </span>
+          {saveError}
         </div>
       )}
 
