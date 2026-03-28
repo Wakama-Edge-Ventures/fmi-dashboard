@@ -50,6 +50,8 @@ export default function LoginPage() {
         modules?:         string[];
       };
 
+      console.log("[login] response:", JSON.stringify(data));
+
       localStorage.setItem("wakama_token",      data.token);
       localStorage.setItem("wakama_fmi_token",  data.token);
       localStorage.setItem(
