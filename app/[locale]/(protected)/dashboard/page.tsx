@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
   Area,
@@ -28,7 +29,7 @@ import {
   scores,
 } from "@/src/lib/api";
 import { formatFCFA, relativeTime, scoreColor } from "@/src/lib/utils";
-import { getInstitutionName } from "@/src/lib/auth";
+import { canApproveCredit, getInstitutionName } from "@/src/lib/auth";
 import type {
   Alert,
   Cooperative,
@@ -94,6 +95,10 @@ const STATUS_LABELS: Record<string, string> = {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const pathname = usePathname();
+  const localeMatch = pathname.match(/^\/([a-z]{2})(\/|$)/);
+  const localePrefix = localeMatch ? `/${localeMatch[1]}` : "/fr";
+  const canDecideCredits = canApproveCredit();
   const [loading, setLoading] = useState(true);
   const [institutionName, setInstitutionName] = useState("");
 
@@ -108,7 +113,6 @@ export default function DashboardPage() {
   const [unreadAlerts, setUnreadAlerts] = useState<Alert[]>([]);
   const [creditList, setCreditList]     = useState<CreditRequest[]>([]);
   const [scoreResults, setScoreResults] = useState<WakamaScoreResult[]>([]);
-  const [processingId, setProcessingId] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated]   = useState<Date | null>(null);
   const [error, setError]               = useState<string | null>(null);
 
@@ -208,15 +212,9 @@ export default function DashboardPage() {
   const recentAlerts = [...unreadAlerts].slice(0, 5);
 
   async function handleCredit(id: string, action: "APPROVED" | "REJECTED") {
-    setProcessingId(id);
-    try {
-      await creditRequests.updateStatus(id, action);
-      setCreditList((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, statut: action } : c))
-      );
-    } finally {
-      setProcessingId(null);
-    }
+    void id;
+    void action;
+    window.location.assign(`${localePrefix}/credits`);
   }
 
   // ─── Card shell ──────────────────────────────────────────────────────────
@@ -490,7 +488,6 @@ export default function DashboardPage() {
                 {recentCredits.map((cr) => {
                   const farmerScore = scoreMap.get(cr.farmerId);
                   const isPending   = cr.statut === "PENDING";
-                  const isBusy      = processingId === cr.id;
                   const statusStyle = STATUS_STYLES[cr.statut] ?? {};
                   return (
                     <li
@@ -518,11 +515,10 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      {isPending && (
+                      {isPending && canDecideCredits && (
                         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
                           <button
                             onClick={() => void handleCredit(cr.id, "APPROVED")}
-                            disabled={isBusy}
                             style={{
                               flex: 1,
                               height: 26,
@@ -532,15 +528,14 @@ export default function DashboardPage() {
                               background: "rgba(16,185,129,0.08)",
                               color: "#10b981",
                               border: "1px solid rgba(16,185,129,0.2)",
-                              cursor: isBusy ? "not-allowed" : "pointer",
-                              opacity: isBusy ? 0.5 : 1,
+                              cursor: "pointer",
+                              opacity: 1,
                             }}
                           >
                             Approuver
                           </button>
                           <button
                             onClick={() => void handleCredit(cr.id, "REJECTED")}
-                            disabled={isBusy}
                             style={{
                               flex: 1,
                               height: 26,
@@ -550,13 +545,18 @@ export default function DashboardPage() {
                               background: "rgba(239,68,68,0.08)",
                               color: "#ef4444",
                               border: "1px solid rgba(239,68,68,0.2)",
-                              cursor: isBusy ? "not-allowed" : "pointer",
-                              opacity: isBusy ? 0.5 : 1,
+                              cursor: "pointer",
+                              opacity: 1,
                             }}
                           >
                             Rejeter
                           </button>
                         </div>
+                      )}
+                      {isPending && !canDecideCredits && (
+                        <p style={{ marginTop: 8, fontSize: 11, color: "#5a6a85" }}>
+                          Lecture seule
+                        </p>
                       )}
                     </li>
                   );

@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { auth } from "@/src/lib/api";
+import {
+  consumeAuthFlashMessage,
+  persistInstitutionAuthSession,
+} from "@/src/lib/auth";
 
 const INSTITUTIONS = [
   "Baobab CI",
@@ -23,46 +28,37 @@ export default function LoginPage() {
   const [error,       setError]       = useState<string | null>(null);
   const [loading,     setLoading]     = useState(false);
 
+  useEffect(() => {
+    const flash = consumeAuthFlashMessage();
+    if (flash) setError(flash);
+  }, []);
+
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
     try {
-      const res = await fetch("https://api.wakama.farm/v1/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const data = await auth.institutionLogin({ email, password, institution });
+      const resolvedRole =
+        data.institutionRole ?? data.role ?? data.user?.institutionRole ?? data.user?.role;
+      const resolvedEmail = data.user?.email ?? data.email ?? email;
+
+      persistInstitutionAuthSession({
+        token: data.token,
+        user: {
+          ...data.user,
+          email: resolvedEmail,
+          role: resolvedRole,
+          institutionRole: data.institutionRole ?? resolvedRole,
+        },
+        role: data.role ?? resolvedRole,
+        institutionRole: data.institutionRole ?? resolvedRole,
+        institutionId: data.institutionId,
+        institutionName: data.institutionName ?? institution,
+        institutionType: data.institutionType,
+        modules: data.modules ?? [],
       });
-
-      if (!res.ok) {
-        const data = (await res.json()) as { message?: string };
-        throw new Error(data.message ?? "Identifiants incorrects");
-      }
-
-      const data = (await res.json()) as {
-        token: string;
-        role: string;
-        email: string;
-        institutionId?:   string;
-        institutionName?: string;
-        institutionType?: string;
-        modules?:         string[];
-      };
-
-      console.log("[login] response:", JSON.stringify(data));
-
-      localStorage.setItem("wakama_token",      data.token);
-      localStorage.setItem("wakama_fmi_token",  data.token);
-      localStorage.setItem(
-        "wakama_user",
-        JSON.stringify({ email: data.email, role: data.role })
-      );
-      localStorage.setItem("wakama_fmi_institution_id",   data.institutionId ?? "");
-      localStorage.setItem("wakama_fmi_institution_name", data.institutionName ?? institution);
-      localStorage.setItem("wakama_fmi_institution_type", data.institutionType ?? "");
-      localStorage.setItem("wakama_fmi_modules",          JSON.stringify(data.modules ?? []));
-      localStorage.setItem("wakama_fmi_institution",      institution);
 
       const localeMatch = window.location.pathname.match(/^\/([a-z]{2})(\/|$)/);
       const locale = localeMatch ? localeMatch[1] : "fr";

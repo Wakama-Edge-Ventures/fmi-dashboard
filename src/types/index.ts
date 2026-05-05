@@ -2,13 +2,19 @@
 
 export interface AuthLoginResponse {
   token: string;
-  role: string;
-  email: string;
-  /** Institution fields (API v2) */
-  institutionId?:   string;
+  role?: string;
+  institutionRole?: string;
+  email?: string;
+  user?: {
+    email?: string;
+    role?: string;
+    institutionRole?: string;
+    name?: string;
+  };
+  institutionId?: string;
   institutionName?: string;
   institutionType?: string;
-  modules?:         string[];
+  modules?: string[];
 }
 
 export interface AuthUser {
@@ -26,7 +32,7 @@ export interface Farmer {
   telephone: string;
   region: string;
   village: string;
-  photo?: string;
+  photoUrl?: string;
   cniUrl?: string;
   attestationUrl?: string;
   cooperativeId?: string;
@@ -38,8 +44,9 @@ export interface Farmer {
   /** API may return camelCase variants */
   firstName?: string;
   lastName?: string;
-  createdAt: string;
-  updatedAt: string;
+  onboardedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface FarmersListResponse {
@@ -227,4 +234,82 @@ export interface IotReading {
   humidity: number;
   soilMoisture: number;
   rssi?: number;
+}
+
+export interface DossierComiteScoreBreakdown {
+  c1?: number;
+  c2?: number;
+  c3?: number;
+  c4?: number;
+}
+
+export interface DossierComiteParcel {
+  id?: string;
+  name?: string;
+  culture?: string;
+  surface?: number;
+  ndvi?: number;
+  stade?: string;
+}
+
+export interface DossierComiteDocument {
+  label?: string;
+  name?: string;
+  type?: string;
+  status?: string;
+  present?: boolean;
+}
+
+export interface DossierComiteAlert {
+  id?: string;
+  title?: string;
+  type?: string;
+  severity?: string;
+  message?: string;
+}
+
+export interface DossierComiteCreditHistoryItem {
+  id?: string;
+  status?: string;
+  montant?: number;
+  amount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface DossierComiteData {
+  farmer?: Record<string, unknown>;
+  cooperative?: Record<string, unknown> | null;
+  kyc?: {
+    status?: string;
+    documents?: DossierComiteDocument[];
+    missingItems?: string[];
+  } | null;
+  parcels?: DossierComiteParcel[];
+  agronomicMonitoring?: {
+    ndviAverage?: number;
+    alerts?: DossierComiteAlert[];
+  } | null;
+  credit?: {
+    history?: DossierComiteCreditHistoryItem[];
+    activeRequest?: Record<string, unknown> | null;
+    suggestedAmount?: number;
+  } | null;
+  score?: {
+    score?: number;
+    riskLevel?: string;
+    readinessStatus?: string;
+    breakdown?: DossierComiteScoreBreakdown;
+    positiveFactors?: string[];
+    riskFactors?: string[];
+    confidenceLevel?: string | number;
+  } | null;
+  committeeReadiness?: {
+    status?: string;
+    score?: number;
+    completedItems?: string[];
+    missingRequiredItems?: string[];
+  } | null;
+  audit?: Record<string, unknown> | null;
+  complianceNotice?: string | Record<string, unknown> | null;
 }

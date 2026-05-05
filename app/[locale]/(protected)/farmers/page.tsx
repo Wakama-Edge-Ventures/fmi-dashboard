@@ -17,7 +17,7 @@ import {
   hasCustomWeights,
   type InstitutionScoringConfig,
 } from "@/src/lib/scoringConfig";
-import { exportCSV, initials, scoreColor, scoreLabel } from "@/src/lib/utils";
+import { exportCSV, getFarmerDisplayName, getFarmerInitials, scoreColor, scoreLabel } from "@/src/lib/utils";
 import type { Cooperative, Farmer, WakamaScoreResult } from "@/src/types";
 
 // ─── Dynamic map (SSR disabled) ──────────────────────────────────────────────
@@ -192,7 +192,7 @@ export default function FarmersPage() {
   const filtered = useMemo(() => {
     const q = debouncedSearch.toLowerCase();
     return farmersList.filter((f) => {
-      if (q && !`${f.nom} ${f.prenom} ${f.id}`.toLowerCase().includes(q)) return false;
+      if (q && !`${getFarmerDisplayName(f)} ${f.id}`.toLowerCase().includes(q)) return false;
       if (scoreMin > 0 && (scoreMap[f.id]?.score ?? 0) < scoreMin) return false;
       if (coopFilter && f.cooperativeId !== coopFilter) return false;
       if (regionFilter && f.region !== regionFilter) return false;
@@ -477,11 +477,11 @@ export default function FarmersPage() {
                         <td style={{ padding: "0 12px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "50%", background: "rgba(16,185,129,0.12)", color: "#10b981", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                              {initials(farmer.nom, farmer.prenom)}
+                              {getFarmerInitials(farmer)}
                             </div>
                             <div style={{ minWidth: 0 }}>
                               <p style={{ fontSize: 12, fontWeight: 500, color: "#e8edf5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>
-                                {farmer.prenom} {farmer.nom}
+                                {getFarmerDisplayName(farmer)}
                               </p>
                               <p className="mono" style={{ fontSize: 10, color: "#3a4a60" }}>
                                 #{farmer.id.slice(0, 8)}

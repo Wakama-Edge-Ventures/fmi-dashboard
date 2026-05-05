@@ -142,3 +142,42 @@ export function exportCSV(
 export function initials(nom: string = "", prenom: string = ""): string {
   return `${(nom ?? "")[0] ?? ""}${(prenom ?? "")[0] ?? ""}`.toUpperCase() || "?";
 }
+
+/**
+ * Returns the display name for a farmer, handling all API field variants:
+ * nom/prenom (French), firstName/lastName (camelCase), or fullName.
+ * Falls back to "Agriculteur sans nom" if none are present.
+ */
+export function getFarmerDisplayName(farmer: {
+  nom?: string;
+  prenom?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+}): string {
+  const nom    = farmer.nom?.trim()    ?? "";
+  const prenom = farmer.prenom?.trim() ?? "";
+  if (nom || prenom) return [prenom, nom].filter(Boolean).join(" ");
+
+  const first = farmer.firstName?.trim() ?? "";
+  const last  = farmer.lastName?.trim()  ?? "";
+  if (first || last) return [first, last].filter(Boolean).join(" ");
+
+  if (farmer.fullName?.trim()) return farmer.fullName.trim();
+
+  return "Agriculteur sans nom";
+}
+
+/**
+ * Returns initials for a farmer, using the same field priority as getFarmerDisplayName.
+ */
+export function getFarmerInitials(farmer: {
+  nom?: string;
+  prenom?: string;
+  firstName?: string;
+  lastName?: string;
+}): string {
+  const first = (farmer.prenom?.trim() || farmer.firstName?.trim() || "")[0] ?? "";
+  const last  = (farmer.nom?.trim()    || farmer.lastName?.trim()  || "")[0] ?? "";
+  return `${first}${last}`.toUpperCase() || "?";
+}

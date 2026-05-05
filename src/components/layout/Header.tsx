@@ -1,11 +1,11 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore, useState } from "react";
 
 import { alerts as alertsApi } from "@/src/lib/api";
-import { clearAuth } from "@/src/lib/auth";
-import { getTheme, setTheme, type Theme } from "@/src/lib/theme";
+import { canMarkAlerts, clearAuth, getInstitutionRole, getStoredUser } from "@/src/lib/auth";
+import { getTheme, setTheme, subscribeTheme, type Theme } from "@/src/lib/theme";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard":    "Tableau de bord",
@@ -32,35 +32,38 @@ const PAGE_PARENTS: Record<string, string> = {
   "/settings":     "Système",
 };
 
-interface User {
-  email: string;
-  role: string;
-}
-
 export default function Header() {
   const pathname = usePathname();
   const router   = useRouter();
-
-  const [user,        setUser]       = useState<User | null>(null);
+  const userSnapshot = useSyncExternalStore(
+    () => () => undefined,
+    () => {
+      const stored = getStoredUser();
+      return stored?.email
+        ? `${stored.email}::${getInstitutionRole()}`
+        : "";
+    },
+    () => ""
+  );
+  const user = userSnapshot
+    ? {
+        email: userSnapshot.split("::")[0] ?? "",
+        role: userSnapshot.split("::")[1] ?? "",
+      }
+    : null;
   const [unreadCount, setUnreadCount] = useState(0);
-  const [theme,       setThemeState] = useState<Theme>("dark");
-
-  // Load user + theme from localStorage (client-only)
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("wakama_user");
-      if (stored) setUser(JSON.parse(stored) as User);
-    } catch {
-      // ignore
-    }
-    setThemeState(getTheme());
-  }, []);
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, () => "dark" as Theme);
 
   // Fetch unread alert count, then poll every 60 s
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     async function fetchCount() {
+      if (!canMarkAlerts()) {
+        setUnreadCount(0);
+        return;
+      }
+
       try {
         const list = await alertsApi.list({ unreadOnly: true });
         setUnreadCount(Array.isArray(list) ? list.length : 0);
@@ -79,7 +82,6 @@ export default function Header() {
   function handleThemeToggle() {
     const next: Theme = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    setThemeState(next);
   }
 
   const email    = user?.email ?? "";

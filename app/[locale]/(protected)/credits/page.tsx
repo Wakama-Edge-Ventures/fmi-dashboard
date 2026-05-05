@@ -5,7 +5,12 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import KPICard from "@/src/components/ui/KPICard";
-import { getInstitutionId, getInstitutionName } from "@/src/lib/auth";
+import {
+  canApproveCredit,
+  getInstitutionId,
+  getInstitutionName,
+  getInstitutionRole,
+} from "@/src/lib/auth";
 import {
   getActiveConfig,
   type InstitutionScoringConfig,
@@ -416,6 +421,8 @@ function RejectionModal({ credit, farmer, scoreData, onClose, onConfirm, isSubmi
 export default function CreditsPage() {
   const params = useParams();
   const locale = (params.locale as string) ?? "fr";
+  const canDecideCredits = canApproveCredit();
+  const institutionRole = getInstitutionRole();
 
   const [loading,        setLoading]        = useState(true);
   const [credits,        setCredits]        = useState<CreditRequest[]>([]);
@@ -506,8 +513,8 @@ export default function CreditsPage() {
   const visibleCredits = useMemo(() => {
     if (!institutionId) return credits;
     const hasSomeId = credits.some((c) => c.institutionId);
-    if (!hasSomeId) return credits; // API doesn't send institutionId yet
-    return credits.filter((c) => !c.institutionId || c.institutionId === institutionId);
+    if (!hasSomeId) return credits;
+    return credits.filter((c) => c.institutionId === institutionId);
   }, [credits, institutionId]);
 
   const kpis = useMemo(() => ({
@@ -581,17 +588,24 @@ export default function CreditsPage() {
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
   function openApproval(credit: CreditRequest) {
+    if (!canDecideCredits) return;
     setSelectedCredit(credit);
     setModalError(null);
     setShowApproval(true);
   }
   function openRejection(credit: CreditRequest) {
+    if (!canDecideCredits) return;
     setSelectedCredit(credit);
     setModalError(null);
     setShowRejection(true);
   }
 
-  async function handleApprove(montantAccorde: number, tauxApplique: number, _produit: string) {
+  async function handleApprove(montantAccorde: number, tauxApplique: number, produit: string) {
+    void produit;
+    if (!canDecideCredits) {
+      setModalError("Accès non autorisé pour ce rôle.");
+      return;
+    }
     if (!selectedCredit) return;
     setIsSubmitting(true);
     setModalError(null);
@@ -622,7 +636,12 @@ export default function CreditsPage() {
     }
   }
 
-  async function handleReject(motif: string, _note: string) {
+  async function handleReject(motif: string, note: string) {
+    void note;
+    if (!canDecideCredits) {
+      setModalError("Accès non autorisé pour ce rôle.");
+      return;
+    }
     if (!selectedCredit) return;
     setIsSubmitting(true);
     setModalError(null);
@@ -748,6 +767,14 @@ export default function CreditsPage() {
           Export CSV
         </button>
       </div>
+
+      {!canDecideCredits && (
+        <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-300">
+          {institutionRole === "READONLY"
+            ? "Mode READONLY : approbation et rejet désactivés."
+            : "Votre rôle ne permet pas de traiter les décisions de crédit."}
+        </div>
+      )}
 
       {/* ═══════════════════════════════════ KPIs */}
       <div className="grid grid-cols-4 gap-4">
@@ -1038,7 +1065,7 @@ export default function CreditsPage() {
                       {/* Actions */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5 whitespace-nowrap">
-                          {credit.statut === "PENDING" && (
+                          {credit.statut === "PENDING" && canDecideCredits && (
                             <>
                               <button
                                 onClick={() => openApproval(credit)}
@@ -1053,6 +1080,11 @@ export default function CreditsPage() {
                                 ❌ Rejeter
                               </button>
                             </>
+                          )}
+                          {credit.statut === "PENDING" && !canDecideCredits && (
+                            <span className="text-xs text-text-muted">
+                              Lecture seule
+                            </span>
                           )}
                           <Link
                             href={`/${locale}/farmers/${credit.farmerId}`}

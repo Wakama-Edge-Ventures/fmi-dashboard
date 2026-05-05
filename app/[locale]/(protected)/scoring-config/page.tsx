@@ -13,8 +13,13 @@ import {
   type InstitutionScoringConfig,
   type InstitutionProduct,
 } from "@/src/lib/scoringConfig";
-import { getInstitutionId, getInstitutionName } from "@/src/lib/auth";
-import { saveScoringConfig } from "@/src/lib/api";
+import {
+  canEditScoringConfig,
+  getInstitutionId,
+  getInstitutionName,
+  getInstitutionRole,
+} from "@/src/lib/auth";
+import { getScoringConfig, saveScoringConfig } from "@/src/lib/api";
 import { formatFCFA, scoreColor } from "@/src/lib/utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -52,7 +57,6 @@ const EXAMPLE_FARMERS = [
   { label: "Faible", scores: { c1: 60, c2: 55, c3: 45, c4: 50 } },
 ];
 
-const API_BASE = "https://api.wakama.farm";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +71,46 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "var(--font-mono), monospace",
   width: "100%",
 };
+
+function toConfigShape(
+  institutionId: string,
+  raw: unknown
+): InstitutionScoringConfig {
+  const fallback = getActiveConfig(institutionId);
+  const source = (raw ?? {}) as Record<string, unknown>;
+  const weightsSource = (source.weights ?? {}) as Record<string, unknown>;
+
+  return {
+    ...fallback,
+    ...source,
+    institutionId,
+    updatedAt:
+      typeof source.updatedAt === "string"
+        ? source.updatedAt
+        : new Date().toISOString(),
+    weights: {
+      c1_capacite: Number(source.weightC1 ?? weightsSource.c1_capacite ?? fallback.weights.c1_capacite),
+      c2_caractere: Number(source.weightC2 ?? weightsSource.c2_caractere ?? fallback.weights.c2_caractere),
+      c3_collateral: Number(source.weightC3 ?? weightsSource.c3_collateral ?? fallback.weights.c3_collateral),
+      c4_conditions: Number(source.weightC4 ?? weightsSource.c4_conditions ?? fallback.weights.c4_conditions),
+    },
+    c1Rules: { ...fallback.c1Rules, ...((source.c1Rules ?? {}) as object) },
+    c2Rules: { ...fallback.c2Rules, ...((source.c2Rules ?? {}) as object) },
+    c3Rules: { ...fallback.c3Rules, ...((source.c3Rules ?? {}) as object) },
+    c4Rules: { ...fallback.c4Rules, ...((source.c4Rules ?? {}) as object) },
+    creditConditions: {
+      ...fallback.creditConditions,
+      ...((source.creditConditions ?? {}) as object),
+    },
+    riskProfile: {
+      ...fallback.riskProfile,
+      ...((source.riskProfile ?? {}) as object),
+    },
+    products: Array.isArray(source.products)
+      ? (source.products as InstitutionProduct[])
+      : fallback.products,
+  };
+}
 
 // ─── Helper components ────────────────────────────────────────────────────────
 
@@ -149,6 +193,8 @@ function Toggle({
 export default function ScoringConfigPage() {
   // Locale (unused in display but required by Next.js route)
   useParams();
+  const canEdit = canEditScoringConfig();
+  const institutionRole = getInstitutionRole();
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [config, setConfig] = useState<InstitutionScoringConfig | null>(null);
@@ -168,11 +214,26 @@ export default function ScoringConfigPage() {
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const id = getInstitutionId() ?? "default";
-    const name = getInstitutionName();
-    setInstitutionId(id);
-    setInstitutionName(name);
-    setConfig(getActiveConfig(id));
+    async function loadConfig() {
+      const id = getInstitutionId() ?? "default";
+      const name = getInstitutionName();
+      const localFallback = getActiveConfig(id);
+
+      setInstitutionId(id);
+      setInstitutionName(name);
+
+      try {
+        const backendConfig = await getScoringConfig(id);
+        const normalized = toConfigShape(id, backendConfig);
+        setConfig(normalized);
+        saveConfigLocally(normalized);
+        setSaved(true);
+      } catch {
+        setConfig(localFallback);
+      }
+    }
+
+    void loadConfig();
   }, []);
 
   // ── Config helpers ────────────────────────────────────────────────────────
@@ -215,6 +276,10 @@ export default function ScoringConfigPage() {
 
   /** Saves to API (PATCH /v1/institutions/:id/scoring-config) with localStorage fallback. */
   const handleSave = useCallback(async () => {
+    if (!canEdit) {
+      setSaveError("Accès non autorisé pour ce rôle.");
+      return;
+    }
     if (!config) return;
     setSaving(true);
     setSaveError(null);
@@ -243,10 +308,14 @@ export default function ScoringConfigPage() {
     } finally {
       setSaving(false);
     }
-  }, [config, institutionId]);
+  }, [canEdit, config, institutionId]);
 
   /** Resets config to factory defaults. */
   const handleReset = useCallback(() => {
+    if (!canEdit) {
+      setSaveError("Accès non autorisé pour ce rôle.");
+      return;
+    }
     if (!confirm("Réinitialiser la configuration aux valeurs par défaut ?")) return;
     const fresh: InstitutionScoringConfig = {
       ...DEFAULT_CONFIG,
@@ -275,7 +344,7 @@ export default function ScoringConfigPage() {
     saveConfigLocally(fresh);
     setConfig(fresh);
     setSaved(true);
-  }, [institutionId]);
+  }, [canEdit, institutionId]);
 
   // ── Loading guard ─────────────────────────────────────────────────────────
   if (!config) {
@@ -380,7 +449,7 @@ export default function ScoringConfigPage() {
           {/* Save button */}
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !canEdit}
             style={{
               display: "flex",
               alignItems: "center",
@@ -388,12 +457,12 @@ export default function ScoringConfigPage() {
               padding: "8px 16px",
               borderRadius: 8,
               border: "none",
-              cursor: saving ? "not-allowed" : "pointer",
+              cursor: saving || !canEdit ? "not-allowed" : "pointer",
               background: "#10b981",
               color: "white",
               fontSize: 13,
               fontWeight: 600,
-              opacity: saving ? 0.7 : 1,
+              opacity: saving || !canEdit ? 0.7 : 1,
             }}
           >
             <span
@@ -411,6 +480,7 @@ export default function ScoringConfigPage() {
           {/* Reset button */}
           <button
             onClick={handleReset}
+            disabled={!canEdit}
             style={{
               display: "flex",
               alignItems: "center",
@@ -418,18 +488,21 @@ export default function ScoringConfigPage() {
               padding: "8px 16px",
               borderRadius: 8,
               border: "1px solid var(--border)",
-              cursor: "pointer",
+              cursor: canEdit ? "pointer" : "not-allowed",
               background: "transparent",
               color: "var(--text-secondary)",
               fontSize: 13,
               fontWeight: 500,
               transition: "color 150ms, border-color 150ms",
+              opacity: canEdit ? 1 : 0.6,
             }}
             onMouseEnter={(e) => {
+              if (!canEdit) return;
               (e.currentTarget as HTMLButtonElement).style.color = "#ef4444";
               (e.currentTarget as HTMLButtonElement).style.borderColor = "#ef4444";
             }}
             onMouseLeave={(e) => {
+              if (!canEdit) return;
               (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
               (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
             }}
@@ -498,6 +571,24 @@ export default function ScoringConfigPage() {
         </div>
       )}
 
+      {!canEdit && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: "10px 14px",
+            borderRadius: 8,
+            background: "rgba(245,158,11,0.08)",
+            border: "1px solid rgba(245,158,11,0.25)",
+            fontSize: 12,
+            color: "#f59e0b",
+          }}
+        >
+          {institutionRole === "READONLY"
+            ? "Mode READONLY : modification de la scoring-config désactivée."
+            : "Votre rôle ne permet pas de modifier la scoring-config."}
+        </div>
+      )}
+
       {/* ── TABS ───────────────────────────────────────────────────────────── */}
       <div
         style={{
@@ -534,6 +625,7 @@ export default function ScoringConfigPage() {
       {/* ── TAB CONTENT ─────────────────────────────────────────────────────── */}
 
       {/* ── TAB 1: Pondération 4C ─────────────────────────────────────────── */}
+      <div style={!canEdit ? { pointerEvents: "none", opacity: 0.72 } : undefined}>
       {activeTab === 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <SectionCard title="Pondération des critères 4C">
@@ -1900,6 +1992,7 @@ export default function ScoringConfigPage() {
           </SectionCard>
         </div>
       )}
+      </div>
     </div>
   );
 }

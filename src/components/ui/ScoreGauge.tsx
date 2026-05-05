@@ -3,12 +3,13 @@ import { scoreColor, scoreLabel } from "@/src/lib/utils";
 // ─── Constants (80px diameter, 5px stroke) ───────────────────────────────────
 
 const SIZE      = 80;
-const CX        = SIZE / 2;  // 40
-const CY        = SIZE / 2;  // 40
+const CX        = SIZE / 2;              // 40
+const CY        = SIZE / 2 + 4;         // 44 — pushed down so arc ends have room below
 const STROKE_W  = 5;
 const R         = (SIZE - STROKE_W * 2) / 2;    // 35
 const FULL_CIRC = 2 * Math.PI * R;               // ≈ 219.9
 const HALF_CIRC = Math.PI * R;                   // ≈ 109.96
+const SVG_H     = CY + STROKE_W + 4;    // 53 — ensures rounded caps never clip
 const TRANSFORM = `rotate(-180 ${CX} ${CY})`;
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -49,11 +50,11 @@ export default function ScoreGauge({
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
 
-      {/* SVG gauge — 80×50 viewport (half-circle) */}
+      {/* SVG gauge — half-circle with enough room for rounded caps */}
       <svg
         width={SIZE}
-        height={SIZE / 2 + STROKE_W}
-        viewBox={`0 0 ${SIZE} ${SIZE / 2 + STROKE_W}`}
+        height={SVG_H}
+        viewBox={`0 0 ${SIZE} ${SVG_H}`}
         aria-label={`Score ${score} sur 1000`}
       >
         {/* Background arc */}
@@ -84,7 +85,7 @@ export default function ScoreGauge({
         {/* Score value */}
         <text
           x="50%"
-          y={CY + 4}
+          y={CY - 2}
           textAnchor="middle"
           dominantBaseline="middle"
           fill={color}

@@ -11,6 +11,7 @@ import {
   cooperatives as cooperativesApi,
   farmers as farmersApi,
 } from "@/src/lib/api";
+import { canMarkAlerts, isReadOnly } from "@/src/lib/auth";
 import { relativeTime } from "@/src/lib/utils";
 import type { Alert, AlertSeverity, AlertType, Cooperative, Farmer } from "@/src/types";
 
@@ -75,6 +76,8 @@ const PAGE_SIZE = 20;
 export default function AlertsPage() {
   const params = useParams();
   const locale = (params.locale as string) ?? "fr";
+  const canPatchAlerts = canMarkAlerts();
+  const readOnly = isReadOnly();
 
   // ── Data state ──
   const [allAlerts,  setAllAlerts]  = useState<Alert[]>([]);
@@ -132,6 +135,7 @@ export default function AlertsPage() {
   // ── Mark single alert as read (optimistic) ──
   async function handleMarkRead(id: string, e: React.MouseEvent) {
     e.stopPropagation();
+    if (!canPatchAlerts) return;
     setAllAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, read: true } : a)));
     try {
       await alertsApi.markRead(id);
@@ -143,6 +147,7 @@ export default function AlertsPage() {
 
   // ── Mark all as read ──
   async function handleMarkAllRead() {
+    if (!canPatchAlerts) return;
     setMarkingAll(true);
     setAllAlerts((prev) => prev.map((a) => ({ ...a, read: true })));
     try {
@@ -214,6 +219,12 @@ export default function AlertsPage() {
           </p>
         </div>
       </div>
+
+      {readOnly && (
+        <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-sm text-amber-300">
+          Mode READONLY : marquage des alertes désactivé.
+        </div>
+      )}
 
       {/* ── KPI cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -293,7 +304,7 @@ export default function AlertsPage() {
         <div className="flex-1" />
 
         {/* Mark all read */}
-        {kpis.unread > 0 && (
+        {kpis.unread > 0 && canPatchAlerts && (
           <button
             onClick={handleMarkAllRead}
             disabled={markingAll}
@@ -477,7 +488,7 @@ export default function AlertsPage() {
 
                   {/* Right: mark read + expand chevron */}
                   <div className="flex-shrink-0 flex items-center gap-2">
-                    {!alert.read && (
+                    {!alert.read && canPatchAlerts && (
                       <button
                         onClick={(e) => handleMarkRead(alert.id, e)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-xs font-medium hover:bg-accent/20 transition-colors whitespace-nowrap"
@@ -485,6 +496,11 @@ export default function AlertsPage() {
                         <span className="material-symbols-outlined" style={{ fontSize: 13 }}>check</span>
                         Marquer lu
                       </button>
+                    )}
+                    {!alert.read && !canPatchAlerts && (
+                      <span className="text-xs text-text-muted whitespace-nowrap">
+                        Lecture seule
+                      </span>
                     )}
                     <span
                       className="material-symbols-outlined text-text-muted transition-transform duration-200"

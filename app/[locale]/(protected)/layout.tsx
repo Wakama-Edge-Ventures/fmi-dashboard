@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import Sidebar from "@/src/components/layout/Sidebar";
+import { usePathname, useRouter } from "next/navigation";
+
 import Header from "@/src/components/layout/Header";
+import Sidebar from "@/src/components/layout/Sidebar";
+import { clearAuth, getAuthToken } from "@/src/lib/auth";
 
 export default function ProtectedLayout({
   children,
@@ -14,7 +16,7 @@ export default function ProtectedLayout({
   const pathname = usePathname();
 
   useEffect(() => {
-    const token = localStorage.getItem("wakama_token");
+    const token = getAuthToken();
     const userRaw = localStorage.getItem("wakama_user");
     const localeMatch = pathname.match(/^\/([a-z]{2})(\/|$)/);
     const locale = localeMatch ? localeMatch[1] : "fr";
@@ -27,9 +29,7 @@ export default function ProtectedLayout({
     try {
       if (userRaw) JSON.parse(userRaw);
     } catch {
-      // Corrupted user data — clear and redirect
-      localStorage.removeItem("wakama_token");
-      localStorage.removeItem("wakama_user");
+      clearAuth();
       router.replace(`/${locale}/login`);
     }
   }, [pathname, router]);

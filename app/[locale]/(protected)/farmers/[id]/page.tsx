@@ -12,8 +12,9 @@ import {
   farmers as farmersApi,
   parcelles as parcellesApi,
   scores as scoresApi,
+  upload as uploadApi,
 } from "@/src/lib/api";
-import { getInstitutionId } from "@/src/lib/auth";
+import { canApproveCredit, getInstitutionId, getInstitutionRole } from "@/src/lib/auth";
 import {
   applyCustomWeights,
   getActiveConfig,
@@ -23,7 +24,8 @@ import {
 import {
   formatFCFA,
   formatScore,
-  initials,
+  getFarmerDisplayName,
+  getFarmerInitials,
   relativeTime,
   scoreColor,
 } from "@/src/lib/utils";
@@ -54,6 +56,15 @@ const CREDIT_STATUS: Record<CreditStatus, { label: string; style: React.CSSPrope
   REVIEWING: { label: "En cours",   style: { backgroundColor: "rgba(59,130,246,0.1)",  color: "#3b82f6", border: "1px solid rgba(59,130,246,0.3)"  } },
   APPROVED:  { label: "Approuvé",   style: { backgroundColor: "rgba(16,185,129,0.1)", color: "#10b981", border: "1px solid rgba(16,185,129,0.3)" } },
   REJECTED:  { label: "Rejeté",     style: { backgroundColor: "rgba(239,68,68,0.1)",   color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)"   } },
+};
+
+const DEFAULT_CREDIT_STATUS_STYLE = {
+  label: "Statut inconnu",
+  style: {
+    backgroundColor: "rgba(148,163,184,0.1)",
+    color: "#94a3b8",
+    border: "1px solid rgba(148,163,184,0.3)",
+  },
 };
 
 function ndviStyle(ndvi: number | null | undefined): { label: string; classes: string } {
@@ -101,7 +112,7 @@ function ApprovalModal({ credit, farmer, scoreData, onClose, onConfirm, isSubmit
           Approuver le crédit
         </h2>
         <p className="text-sm text-text-secondary mb-5">
-          {farmer.prenom} {farmer.nom}
+          {getFarmerDisplayName(farmer)}
           {scoreData && (
             <span
               className="ml-2 font-mono font-semibold"
@@ -281,6 +292,157 @@ function RejectionModal({ onClose, onConfirm, isSubmitting = false, submitError 
   );
 }
 
+// ─── DocumentViewerModal ─────────────────────────────────────────────────────
+
+interface DocViewerState {
+  open: boolean;
+  loading: boolean;
+  error: string | null;
+  url: string | null;
+  mimeType: string | null;
+  docType: "cni" | "attestation" | null;
+}
+
+function DocumentViewerModal({
+  state,
+  onClose,
+}: {
+  state: DocViewerState;
+  onClose: () => void;
+}) {
+  const { loading, error, url, mimeType, docType } = state;
+  const label   = docType === "cni" ? "CNI" : "Attestation foncière";
+  const isPdf   = !loading && !error && !!url && mimeType === "application/pdf";
+  const isImage = !loading && !error && !!url && !!mimeType?.startsWith("image/");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex w-full max-w-2xl flex-col rounded-2xl bg-bg-secondary p-6 shadow-2xl"
+        style={{ border: "1px solid rgba(255,255,255,0.06)", maxHeight: "85vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-text-primary">
+            <span
+              className="material-symbols-outlined text-cyan-400"
+              style={{ fontSize: 22, fontVariationSettings: '"FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20' }}
+            >
+              description
+            </span>
+            {label}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-text-muted hover:text-text-primary transition-colors"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+          </button>
+        </div>
+
+        {/* Loading */}
+        {loading && (
+          <div className="flex flex-col items-center justify-center gap-3 py-12 text-text-muted">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            <p className="text-sm">Chargement du document…</p>
+          </div>
+        )}
+
+        {/* Error */}
+        {!loading && error && (
+          <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-6 text-center">
+            <span
+              className="material-symbols-outlined text-red-400 mb-2 block"
+              style={{ fontSize: 36 }}
+            >
+              error
+            </span>
+            <p className="text-sm font-medium text-red-400">{error}</p>
+          </div>
+        )}
+
+        {/* Document */}
+        {!loading && !error && url && (
+          <div className="flex flex-1 min-h-0 flex-col gap-3">
+            {isPdf ? (
+              <div className="flex flex-col items-center justify-center gap-4 rounded-xl bg-bg-tertiary border border-gray-700 px-6 py-10">
+                <span
+                  className="material-symbols-outlined text-cyan-400"
+                  style={{ fontSize: 56, fontVariationSettings: '"FILL" 1, "wght" 300, "GRAD" 0, "opsz" 48' }}
+                >
+                  picture_as_pdf
+                </span>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-text-primary">{label}</p>
+                  <p className="text-xs text-text-muted mt-0.5">PDF prêt à être consulté</p>
+                </div>
+                <div className="flex gap-3 mt-1">
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-lg bg-cyan-500/15 border border-cyan-700 px-4 py-2 text-sm font-medium text-cyan-400 hover:bg-cyan-500/25 transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>open_in_new</span>
+                    Ouvrir dans un nouvel onglet
+                  </a>
+                  <a
+                    href={url}
+                    download={`${label}.pdf`}
+                    className="flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
+                    Télécharger
+                  </a>
+                </div>
+              </div>
+            ) : isImage ? (
+              <div className="flex items-center justify-center overflow-auto rounded-lg bg-bg-tertiary p-4" style={{ minHeight: 200 }}>
+                <img
+                  src={url}
+                  alt={label}
+                  className="max-w-full object-contain"
+                  style={{ maxHeight: "50vh" }}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center gap-3 py-8 text-text-muted">
+                <span className="material-symbols-outlined" style={{ fontSize: 48 }}>description</span>
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
+                  Télécharger le document
+                </a>
+              </div>
+            )}
+
+            {/* Open in new tab — only for images and unknown types (PDF card has its own CTAs) */}
+            {!isPdf && (
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>open_in_new</span>
+                Ouvrir dans un nouvel onglet
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Products eligible thresholds ────────────────────────────────────────────
 
 const PRODUCTS = [
@@ -303,6 +465,8 @@ export default function FarmerDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const locale = (params.locale as string) ?? "fr";
+  const canDecideCredits = canApproveCredit();
+  const institutionRole = getInstitutionRole();
 
   const [scoringConfig, setScoringConfig] = useState<InstitutionScoringConfig | null>(null);
 
@@ -324,6 +488,9 @@ export default function FarmerDetailPage() {
   const [toast, setToast]               = useState<string | null>(null);
   const [isSubmitting,  setIsSubmitting] = useState(false);
   const [modalError,    setModalError]   = useState<string | null>(null);
+  const [docViewer, setDocViewer]        = useState<DocViewerState>({
+    open: false, loading: false, error: null, url: null, mimeType: null, docType: null,
+  });
 
   function showToastMsg(msg: string) {
     setToast(msg);
@@ -360,7 +527,12 @@ export default function FarmerDetailPage() {
     });
   }, [id]);
 
-  async function handleApprove(montant: number, taux: number, duree: number, _conditions: string) {
+  async function handleApprove(montant: number, taux: number, duree: number, conditions: string) {
+    void conditions;
+    if (!canDecideCredits) {
+      setModalError("Accès non autorisé pour ce rôle.");
+      return;
+    }
     if (!selectedCredit) return;
     setIsSubmitting(true);
     setModalError(null);
@@ -385,7 +557,12 @@ export default function FarmerDetailPage() {
     }
   }
 
-  async function handleReject(motif: string, _note: string) {
+  async function handleReject(motif: string, note: string) {
+    void note;
+    if (!canDecideCredits) {
+      setModalError("Accès non autorisé pour ce rôle.");
+      return;
+    }
     if (!selectedCredit) return;
     setIsSubmitting(true);
     setModalError(null);
@@ -406,6 +583,22 @@ export default function FarmerDetailPage() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function handleViewDocument(type: "cni" | "attestation") {
+    setDocViewer({ open: true, loading: true, error: null, url: null, mimeType: null, docType: type });
+    try {
+      const result = await uploadApi.getDocument(id, type);
+      setDocViewer((prev) => ({ ...prev, loading: false, url: result.url, mimeType: result.mimeType }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors du chargement du document";
+      setDocViewer((prev) => ({ ...prev, loading: false, error: msg }));
+    }
+  }
+
+  function closeDocViewer() {
+    if (docViewer.url?.startsWith("blob:")) URL.revokeObjectURL(docViewer.url);
+    setDocViewer({ open: false, loading: false, error: null, url: null, mimeType: null, docType: null });
   }
 
   // ── Loading ──
@@ -450,7 +643,7 @@ export default function FarmerDetailPage() {
   const hasKYC           = !!(farmer.cniUrl);
   const hasCNI           = !!(farmer.cniUrl);
   const hasAttestation   = !!(farmer.attestationUrl);
-  const hasPhoto         = !!(farmer.photo);
+  const hasPhoto         = !!(farmer.photoUrl);
   const hasGPS           = !!(farmer.gpsLat && farmer.gpsLng);
 
   let revenusAnnexes: string[] = [];
@@ -490,6 +683,9 @@ export default function FarmerDetailPage() {
           submitError={modalError}
         />
       )}
+      {docViewer.open && docViewer.docType && (
+        <DocumentViewerModal state={docViewer} onClose={closeDocViewer} />
+      )}
 
       {/* ══════════════════════════════════════════════════════ STICKY HEADER */}
       <div className="sticky top-0 z-10 bg-bg-primary/95 backdrop-blur-sm px-6 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -506,7 +702,7 @@ export default function FarmerDetailPage() {
             </Link>
             <span className="text-gray-600 shrink-0">›</span>
             <span className="text-sm font-semibold text-text-primary truncate">
-              {farmer.prenom} {farmer.nom}
+              {getFarmerDisplayName(farmer)}
             </span>
             <span
               className={`shrink-0 px-2.5 py-0.5 rounded-full border text-xs font-medium ${
@@ -526,27 +722,50 @@ export default function FarmerDetailPage() {
 
           {/* Right — action buttons */}
           <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href={`/${locale}/farmers/${id}/dossier`}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-700 text-sm text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>folder_open</span>
+              Voir dossier comité
+            </Link>
             <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-700 text-sm text-text-secondary hover:text-text-primary transition-colors">
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>picture_as_pdf</span>
               Rapport PDF
             </button>
             <button
-              disabled={!pendingCredit}
-              onClick={() => { setSelectedCredit(pendingCredit); setShowApproval(true); }}
+              disabled={!pendingCredit || !canDecideCredits}
+              onClick={() => {
+                if (!canDecideCredits || !pendingCredit) return;
+                setSelectedCredit(pendingCredit);
+                setShowApproval(true);
+              }}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent hover:bg-accent-hover text-sm font-semibold text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>
               Approuver crédit
             </button>
             <button
-              disabled={!pendingCredit}
-              onClick={() => { setSelectedCredit(pendingCredit); setShowRejection(true); }}
+              disabled={!pendingCredit || !canDecideCredits}
+              onClick={() => {
+                if (!canDecideCredits || !pendingCredit) return;
+                setSelectedCredit(pendingCredit);
+                setShowRejection(true);
+              }}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-800 text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>cancel</span>
               Rejeter
             </button>
           </div>
+
+          {!canDecideCredits && (
+            <p className="mt-3 text-xs text-amber-300">
+              {institutionRole === "READONLY"
+                ? "Mode READONLY : décisions de crédit désactivées."
+                : "Votre rôle ne permet pas de traiter cette demande."}
+            </p>
+          )}
         </div>
       </div>
 
@@ -561,17 +780,17 @@ export default function FarmerDetailPage() {
             {/* Avatar + name header */}
             <div className="flex items-start gap-5 mb-6">
               <div className="w-20 h-20 rounded-full bg-accent flex items-center justify-center shrink-0 overflow-hidden">
-                {farmer.photo ? (
-                  <img src={farmer.photo} alt={farmer.nom} className="w-full h-full object-cover" />
+                {farmer.photoUrl ? (
+                  <img src={farmer.photoUrl} alt={getFarmerDisplayName(farmer)} className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-2xl font-bold text-white">
-                    {initials(farmer.nom, farmer.prenom)}
+                    {getFarmerInitials(farmer)}
                   </span>
                 )}
               </div>
               <div className="min-w-0">
                 <h1 style={{ fontSize: 14, fontWeight: 500, color: "#e8edf5" }} className="truncate">
-                  {farmer.prenom} {farmer.nom}
+                  {getFarmerDisplayName(farmer)}
                 </h1>
                 <span className="inline-block mt-1 px-2 py-0.5 rounded bg-bg-tertiary text-text-muted text-xs font-mono">
                   #{farmer.id.slice(0, 8).toUpperCase()}
@@ -590,7 +809,7 @@ export default function FarmerDetailPage() {
                 { icon: "phone",           label: "Téléphone",       value: farmer.telephone || "—" },
                 { icon: "email",           label: "Email",            value: farmer.email || "—" },
                 { icon: "groups",          label: "Coopérative",      value: farmer.cooperativeId ?? "—" },
-                { icon: "calendar_month",  label: "Membre depuis",    value: relativeTime(farmer.createdAt) },
+                { icon: "calendar_month",  label: "Membre depuis",    value: relativeTime(farmer.onboardedAt) },
                 {
                   icon: "agriculture",
                   label: "Expérience",
@@ -641,17 +860,18 @@ export default function FarmerDetailPage() {
               </p>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { icon: "badge",         label: "CNI",                ok: hasCNI },
-                  { icon: "landscape",     label: "Attestation foncière", ok: hasAttestation },
-                  { icon: "photo_camera",  label: "Photo",              ok: hasPhoto },
+                  { icon: "badge",        label: "CNI",                  ok: hasCNI,         view: hasCNI ? "cni" as const : null },
+                  { icon: "landscape",    label: "Attestation foncière", ok: hasAttestation,  view: hasAttestation ? "attestation" as const : null },
+                  { icon: "photo_camera", label: "Photo",                ok: hasPhoto,        view: null },
                   {
                     icon: "gps_fixed",
                     label: hasGPS
                       ? `GPS ${farmer.gpsLat?.toFixed(4)}, ${farmer.gpsLng?.toFixed(4)}`
                       : "GPS",
                     ok: hasGPS,
+                    view: null,
                   },
-                ].map(({ icon, label, ok }) => (
+                ].map(({ icon, label, ok, view }) => (
                   <div key={label} className="flex items-center gap-2">
                     <span
                       className="material-symbols-outlined text-text-muted shrink-0"
@@ -660,7 +880,16 @@ export default function FarmerDetailPage() {
                       {icon}
                     </span>
                     <span className="text-sm text-text-secondary truncate flex-1">{label}</span>
-                    <span className="text-sm shrink-0">{ok ? "✅" : "❌"}</span>
+                    {view ? (
+                      <button
+                        onClick={() => handleViewDocument(view)}
+                        className="shrink-0 text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
+                      >
+                        Voir
+                      </button>
+                    ) : (
+                      <span className="text-sm shrink-0">{ok ? "✅" : "❌"}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -890,12 +1119,24 @@ export default function FarmerDetailPage() {
             </span>
           </h3>
 
+          {!canDecideCredits && credits.length > 0 && (
+            <p className="mb-4 text-xs text-amber-300">
+              {institutionRole === "READONLY"
+                ? "Mode READONLY : approbation et rejet masqués."
+                : "Votre rôle ne permet pas de traiter les décisions de crédit."}
+            </p>
+          )}
+
           {credits.length === 0 ? (
             <p className="text-sm text-text-muted text-center py-8">Aucune demande de crédit</p>
           ) : (
             <div className="space-y-3">
               {credits.map((cr) => {
-                const statusStyle = CREDIT_STATUS[cr.statut];
+                const statusStyle =
+                  CREDIT_STATUS[cr.statut as CreditStatus] ?? {
+                    ...DEFAULT_CREDIT_STATUS_STYLE,
+                    label: cr.statut || DEFAULT_CREDIT_STATUS_STYLE.label,
+                  };
                 return (
                   <div
                     key={cr.id}
@@ -917,7 +1158,7 @@ export default function FarmerDetailPage() {
                     {/* Bottom */}
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-text-muted">{relativeTime(cr.createdAt)}</span>
-                      {cr.statut === "PENDING" && (
+                      {cr.statut === "PENDING" && canDecideCredits && (
                         <div className="flex gap-2">
                           <button
                             onClick={() => { setSelectedCredit(cr); setShowApproval(true); }}
@@ -932,6 +1173,9 @@ export default function FarmerDetailPage() {
                             ❌ Rejeter
                           </button>
                         </div>
+                      )}
+                      {cr.statut === "PENDING" && !canDecideCredits && (
+                        <span className="text-xs text-text-muted">Lecture seule</span>
                       )}
                       {cr.statut === "APPROVED" && cr.montantAccorde != null && (
                         <span className="text-xs text-emerald-400 font-mono">

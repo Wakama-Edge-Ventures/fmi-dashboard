@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useSyncExternalStore } from "react";
 
-import { clearAuth } from "@/src/lib/auth";
+import { canEditScoringConfig, clearAuth } from "@/src/lib/auth";
 
 interface NavItem {
   href: string;
@@ -29,6 +30,11 @@ const NAV_ITEMS: NavItem[] = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router   = useRouter();
+  const canEditConfig = useSyncExternalStore(
+    () => () => undefined,
+    canEditScoringConfig,
+    () => true
+  );
 
   const localeMatch  = pathname.match(/^\/([a-z]{2})(\/|$)/);
   const localePrefix = localeMatch ? `/${localeMatch[1]}` : "";
@@ -44,6 +50,13 @@ export default function Sidebar() {
     clearAuth();
     router.push(`${localePrefix}/login`);
   }
+
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.href === "/scoring-config" && !canEditConfig) {
+      return false;
+    }
+    return true;
+  });
 
   return (
     <aside
@@ -70,11 +83,11 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2 px-2">
-        {NAV_ITEMS.map((item, idx) => {
+        {visibleItems.map((item, idx) => {
           const active = isActive(item.href);
           const showSection =
             item.section &&
-            (idx === 0 || NAV_ITEMS[idx - 1]?.section !== item.section);
+            (idx === 0 || visibleItems[idx - 1]?.section !== item.section);
 
           return (
             <div key={item.href}>
